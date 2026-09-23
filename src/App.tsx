@@ -1,0 +1,10039 @@
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  ClipboardList,
+  Stethoscope,
+  Utensils,
+  Activity,
+  Search,
+  Plus,
+  Trash2,
+  Save,
+  Calendar,
+  User,
+  Calculator,
+  ArrowRight,
+  FileDown,
+  Bell,
+  LogOut,
+  LogIn,
+  History,
+  X,
+  Pill,
+  Info,
+  FileText,
+  LayoutDashboard,
+  Users,
+  Scale,
+  BookOpen,
+  Lock,
+  Unlock,
+  Key,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  AlertCircle,
+  CheckSquare,
+  Square,
+  Check,
+  ListChecks,
+  HeartPulse,
+  Droplet,
+  Sparkles,
+  RotateCcw,
+  Copy
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { AppState, FoodItem, PES, MonitoringRecord, Patient } from './types';
+import { generateWordDoc, generateReminderWordDoc } from './lib/wordGenerator';
+import { MONITORING_GROUPS, MONITORING_PRESETS, ALL_MONITORING_INDICATOR_IDS } from './constants/monitoring';
+import { addDays, format, parseISO, isSameDay, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, addMonths, subMonths } from 'date-fns';
+import {
+  auth,
+  db,
+  googleProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  onAuthStateChanged,
+  collection,
+  addDoc,
+  updateDoc,
+  setDoc,
+  doc,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+  Timestamp,
+  deleteDoc,
+  getDocs,
+  User as FirebaseUser
+} from './firebase';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
+import {
+  FOOD_DATABASE,
+  DIAG_DATA,
+  DIET_GUIDELINES,
+  MEALS,
+  EXERCISE_TYPES,
+  ACTIVITY_FACTORS,
+  INTERVENTION_CATEGORIES,
+  DIET_LOG_CATEGORIES,
+  NUTRITION_EDUCATION_CONTENT,
+  BIO_RANGES
+} from './constants';
+import { MEDICATIONS } from './constants/medications';
+ 
+const DIAG_PROBLEM_INFO: { [key: string]: { definition: string; notes?: string } } = {
+"熱量消耗增加(NI1.1)": {
+    definition: "由於體組成的改變，藥物治療，或內分泌、神經的、基因的改變而使休息代謝率 (RMR) 比預測的需要量多",
+    notes: "RMR是指身體休息狀態下， 體內活性高的細胞為維持基本生理機能與調節平衡功能的代謝過程，其所需的能量總和"
+  },
+  "熱量攝取不足(NI1.2)": {
+    definition: "熱量攝取低於其個人生理需求的能量消耗、既定的參考標準或建議量",
+    notes: "較不適用於減重期、安寧照護階段、初期給予腸道或靜脈營養時、或處在急性壓力時 (如：手術、器官衰竭)"
+  },
+  "熱量攝取過多(NI1.3)": {
+    definition: "熱量攝取超過能量消耗既定的參考標準，或依個人生理需求之建議量",
+    notes: "可能不適用於體重需要增加者"
+  },
+  "預期熱量攝取不足(NI1.4)": {
+    definition: "基於觀察、經驗、或科學的理由，預期未來熱量攝取將少於所估計的熱量消耗既定的參考標準，或個人生理需求之建議量",
+    notes: "可能不適用於體重減輕者 。當現階段熱量攝取低於消耗量時，使用「熱量攝取不足」 (NI-1.2)的營養診斷"
+  },
+  "預期熱量攝取過多(NI1.5)": {
+    definition: "基於觀察、經驗、或科學的理由，預期熱量攝取會超過所估計的熱量消耗既定參考標準，或其個人生理需求之建議量",
+    notes: "可能不適用於體重需要增加者；若現階段攝取量多於消耗量，使用「熱量攝取過多」 (NI-1.3)的營養診斷"
+  },
+  "經口攝取不足(NI2.1)": {
+    definition: "經口攝取的食物/飲品低於既定參考標準或個人生理需求之建議量",
+    notes: "不包含造口或管灌攝食。可能不適用於減重期、安寧照護時、初期餵食、或合併由口進食/EN/PN治療時的診斷。"
+  },
+  "經口攝取過多(NI2.2)": {
+    definition: "經口攝取的食物/飲品超過估計的熱量需求、既定的參考標準，或個人生理需求之建議量",
+    notes: "不包含造口或管灌攝食。可能不適用於體重需要增加者"
+  },
+  "腸道營養灌食不足(NI2.3)": {
+    definition: "由腸道灌食之熱量或營養素低於既定參考標準或個人生理需求之建議量",
+    notes: "較不適用於減重期、安寧照護時、初期給予腸道或靜脈營養或急性壓力狀態時"
+  },
+  "腸道營養灌食過多(NI2.4)": {
+    definition: "由腸道灌食之熱量或營養素高於既定參考標準或個人生理需求之建議量",
+  },
+  "腸道營養組成與需求不一致(NI2.5)": {
+    definition: "腸道營養的配方不符合既定參考標準或個人生理需求之建議量",
+  },
+  "腸道營養的施予與需求不一致(NI2.6)": {
+    definition: "腸道營養的供應不符合既定參考標準或個人生理需求之建議量",
+  },
+  "靜脈營養不足(NI2.7)": {
+    definition: "經靜脈輸入的熱量或營養素低於既定參考標準或個人生理需求之建議量",
+    notes: "較不適用於減重期、安寧照護、靜脈營養初期或急性壓力狀態 (如：手術、器官衰竭)時"
+  },
+  "靜脈營養過多(NI2.8)": {
+    definition: "經靜脈輸入的熱量或營養素高於既定參考標準或個人生理需求之建議量",
+  },
+  "靜脈營養組成與需求不一致(NI2.9)": {
+    definition: "靜脈營養輸液配方不符合既定參考標準或個人生理需求之建議量",
+  },
+  "靜脈營養的施予與需求不一致(NI2.10)": {
+    definition: "靜脈營養的供應不符合既定參考標準或個人生理需求之建議量",
+  },
+  "可接受的食物受限(NI2.11)": {
+    definition: "由口進食的食物/飲品，在種類、多樣性及品質上，與參考標準值不一致",
+    notes: "可能較不適用於厭食症、暴食症、狂飲攝食異常，或其他未指明的攝食異常(EDNOS)，「攝食異常」(NB-1.5)的診斷，可考慮使用於這些狀況。"
+  },
+  "水分攝取不足(NI3.1)": {
+    definition: "含水分的食物或其他來源攝取量，低於既定參考標準或個人生理需求之建議量"
+  },
+  "水分攝取過量(NI3.2)": {
+    definition: "水分的攝取量大於既定參考標準或個人生理需求之建議量",
+  },
+  "生物活性成份攝取不足(NI4.1)": {
+    definition: "生物活性物質攝取低於既定參考標準或個人生理需求之建議量",
+    notes: "DRIs並未將生物活性物質列入，因此並沒有建立最低需要量或上限攝取量。不過，營養師們可以就個案個別的目標，或其營養處方予以評估、比較其攝取量是否足夠或過量"
+  },
+  "生物活性成份攝取不足(NI4.2)": {
+    definition: "生物活性物質攝取高於既定參考標準或個人生理需求之建議量",
+    notes: "DRIs並未將生物活性物質列入，因此並沒有建立最低需要量或上限攝取量。不過，營養師們可以就個案個別的目標，或其營養處方予以評估、比較其攝取量是否足夠或過量"
+  },
+  "酒精攝取過多(NI4.3)": {
+    definition: "酒精攝取多於建議的限量"
+  },
+  "營養素需求增加(NI5.1)": {
+    definition: "依據既定參考標準或個人生理需求之建議量，某些特定的營養素需求增加"
+  },
+  "蛋白質-熱量攝取不足(NI5.2)": {
+    definition: "蛋白質及/或熱量攝取低於既定參考標準或個人近期生理需求之建議量",
+  },
+  "營養素需求減少(NI5.3)": {
+    definition: "某種特定營養素需求低於既定參考標準或依個人生理需求之建議量",
+  },
+  "營養素不均衡(NI5.4)": {
+    definition: "營養素組成不理想，如某一營養素的攝取量干擾或改變其他營養素的吸收或利用",
+  },
+  "脂肪攝取不足(NI5.5.1)": {
+    definition: "脂肪攝取低於既定參考標準或個人生理需求之建議量",
+    notes: "不適用於減重或安寧照護"
+  },
+  "脂肪攝取過多(NI5.5.2)": {
+    definition: "脂肪攝取高於既定參考標準或個人生理需求之建議量",
+  },
+  "脂肪型態攝取不符合需求(NI5.5.3)": {
+    definition: "與既定參考標準或個人生理需求之建議比較，所攝取之脂肪型態錯誤或品質不佳",
+  },
+  "蛋白質攝取不足(NI5.6.1)": {
+    definition: "攝取的蛋白質低於既定參考標準或個人生理需求之建議量。",
+  },
+  "蛋白質攝取過多(NI5.6.2)": {
+    definition: "攝取的蛋白質高於既定參考標準或個人生理需求之建議量。",
+  },
+  "蛋白質類別攝取不符合所需(NI5.6.3)": {
+    definition: "某特定類別蛋白質的攝取，與既定參考標準或個人生理需求之建議量比較",
+  },
+  "胺基酸攝取類別不符合需求(NI5.7.1)": {
+    definition: "某特定胺基酸的攝取，與既定參考標準或個人生理需求之建議量比較",
+  },
+  "醣類攝取不足(NI5.8.1)": {
+    definition: "醣類攝取低於既定參考標準或個人生理需求之建議量",
+  },
+  "醣類攝取過多(NI5.8.2)": {
+    definition: "醣類攝取高於既定參考標準或個人生理需求之建議量",
+  },
+  "醣類攝取型態不符合需要(NI5.8.3)": {
+    definition: "某特定形式醣類的攝取量，與既定參考標準或個人生理需求之建議量比較",
+    notes: "對穀類的蛋白質(如榖蛋白：gluten)不耐受，應使用「蛋白質攝取類別不符合需求」 (NI-5.6.3) 參考表單記錄"
+  },
+  "醣類攝取不一致(NI5.8.4)": {
+    definition: "每天或每餐醣類攝取時間不一致，或醣類攝取的型態與生理或醫療需求所建議的不一致",
+  },
+  "纖維質攝取不足(NI5.8.5)": {
+    definition: "纖維質攝取低於既定參考標準或個人生理需求之建議量",
+  },
+  "纖維質攝取過多(NI5.8.6)": {
+    definition: "醣類攝取高於既定參考標準或個人生理需求之建議量",
+  }
+};
+
+const HB_ACTIVITY_OPTIONS = [
+  { label: '輕度活動 (1.3)', value: 1.3 },
+  { label: '臥床 (1.2)', value: 1.2 },
+  { label: '中度活動 (1.4)', value: 1.4 }
+];
+
+const HB_STRESS_OPTIONS = [
+  { label: '正常無疾病 (1.0)', value: 1.0 },
+  { label: '懷孕 (1.1)', value: 1.1 },
+  { label: '生長期 (1.4)', value: 1.4 },
+  { label: '哺乳 (1.4)', value: 1.4 },
+  { label: '敗血症 (1.4)', value: 1.4 },
+  { label: '敗血症 (1.5)', value: 1.5 },
+  { label: '敗血症 (1.6)', value: 1.6 },
+  { label: '敗血症 (1.7)', value: 1.7 },
+  { label: '敗血症 (1.8)', value: 1.8 },
+  { label: '發燒 (1.13)', value: 1.13 },
+  { label: '燒傷 (1.7)', value: 1.7 },
+  { label: '燒傷 (1.8)', value: 1.8 },
+  { label: '燒傷 (1.9)', value: 1.9 },
+  { label: '燒傷 (2.0)', value: 2.0 },
+  { label: '燒傷 (2.1)', value: 2.1 },
+  { label: '燒傷 (2.2)', value: 2.2 },
+  { label: '住院患者 (1.2)', value: 1.2 },
+  { label: '用呼吸器 (1.2)', value: 1.2 },
+  { label: '用呼吸器 (1.3)', value: 1.3 },
+  { label: '用呼吸器 (1.4)', value: 1.4 },
+  { label: '用呼吸器 (1.5)', value: 1.5 },
+  { label: '小手術 (1.3)', value: 1.3 }
+];
+
+const DIAGNOSTIC_TERMINOLOGIES = {
+  NI: {
+    title: "攝取量 (NI)",
+    color: {
+      bg: "bg-blue-50/30",
+      border: "border-blue-100",
+      text: "text-blue-800",
+      accent: "border-blue-500",
+      headerBg: "bg-blue-50 text-blue-900 border-blue-200"
+    },
+    sections: [
+      {
+        name: "1. 熱量平衡",
+        items: ["消耗增加", "熱量攝取不足/過多", "預期熱量攝取不足/過多"]
+      },
+      {
+        name: "2. 經口攝食或營養支持量",
+        items: [
+          "經口攝取不足/過多",
+          "EN灌食不足/過多",
+          "EN組成與需求不一致",
+          "EN的施予與需求不一致",
+          "PN不足/過多",
+          "PN組成與需求不一致",
+          "PN的施予與需求不一致",
+          "可接受的食物受限"
+        ]
+      },
+      {
+        name: "3. 水份攝取",
+        items: ["水份攝取不足/過多"]
+      },
+      {
+        name: "4. 生物活性物質",
+        items: [
+          "生物活性成份攝取不足（植物烷醇酯、植物固醇酯、黃豆蛋白、洋車前子、ß-葡聚醣）",
+          "生物活性成份攝取過多（植物烷醇酯、植物固醇酯、黃豆蛋白、洋車前子、ß-葡聚醣、食品添加物、咖啡因攝取）",
+          "酒精攝取過多"
+        ]
+      },
+      {
+        name: "5. 營養素",
+        items: ["營養素需求增加", "蛋白質-熱量攝取不足", "營養素需求減少", "營養素不均衡"]
+      },
+      {
+        name: "5.5 脂肪和膽固醇",
+        items: ["攝取不足/過多", "脂肪型態攝取不符合需求"]
+      },
+      {
+        name: "5.6 蛋白質",
+        items: ["攝取不足/過多", "蛋白質類別不符合需求"]
+      },
+      {
+        name: "5.7 胺基酸",
+        items: ["胺基酸類別不符合需求"]
+      },
+      {
+        name: "5.8 醣類和纖維質",
+        items: ["攝取不足/過多", "醣類攝取型態不符合需求", "醣類攝取不一致", "纖維質攝取不足/過多"]
+      },
+      {
+        name: "5.9 維生素",
+        items: ["維生素攝取不足/過多"]
+      },
+      {
+        name: "5.10 礦物質",
+        items: ["礦物質攝取不足/過多"]
+      }
+    ]
+  },
+  NC: {
+    title: "臨床面 (NC)",
+    color: {
+      bg: "bg-red-50/20",
+      border: "border-red-100",
+      text: "text-red-800",
+      accent: "border-red-500",
+      headerBg: "bg-red-50 text-red-955 border-red-200"
+    },
+    sections: [
+      {
+        name: "1. 功能面",
+        items: ["吞嚥困難", "撕咬/咀嚼困難", "母乳哺餵困難", "腸胃功能異常", "預期母乳哺餵困難"]
+      },
+      {
+        name: "2. 生化的",
+        items: ["營養素利用不良", "營養相關的檢驗值改變", "食物-藥物交互作用", "預期食物-藥物交互作用"]
+      },
+      {
+        name: "3. 體重",
+        items: [
+          "體重過輕",
+          "非計劃性體重減輕",
+          "體重過重/肥胖",
+          "體重過重，成人或兒童",
+          "非計劃性體重增加",
+          "生長速度低於預期",
+          "生長速度過快"
+        ]
+      },
+      {
+        name: "4. 營養不良疾病",
+        items: ["飢餓相關的營養不良", "慢性疾患相關的營養不良", "急性疾病或損傷相關的營養不良"]
+      }
+    ]
+  },
+  NB: {
+    title: "行為-環境 (NB)",
+    color: {
+      bg: "bg-emerald-50/20",
+      border: "border-emerald-100",
+      text: "text-emerald-800",
+      accent: "border-emerald-500",
+      headerBg: "bg-emerald-50 text-emerald-955 border-emerald-200"
+    },
+    sections: [
+      {
+        name: "1. 知識與信念",
+        items: [
+          "食物與營養相關知識不足",
+          "對於食物或營養相關議題的信念/態度不具科學證據",
+          "尚未準備好飲食/生活型態的改變",
+          "自我監測不足",
+          "攝食異常",
+          "營養相關建議遵從性差",
+          "食物選擇不理想"
+        ]
+      },
+      {
+        name: "2. 身體活動與功能",
+        items: [
+          "體能活動不足",
+          "體能活動過多",
+          "沒有能力自我照顧",
+          "製備食物/餐點的能力不足",
+          "生活營養品質 (NQOL)差",
+          "自我攝食困難"
+        ]
+      },
+      {
+        name: "3. 食物安全與獲取管道",
+        items: ["攝取不安全的食物", "食物獲取受限", "獲取營養相關供應品的管道受限", "飲用水取得受限"]
+      }
+    ]
+  }
+};
+
+const INITIAL_STATE: AppState = {
+  consultDate: new Date().toISOString().split('T')[0],
+  goal: '',
+  notes: '',
+  clientHx: {
+    name: '',
+    gender: '男',
+    birthday: '',
+    job: '在職中',
+    jobDescription: '',
+    familyHx: '',
+    socialHx: '',
+    region: '',
+    habits: { smoke: false, drink: false, none: true, smokeFrequency: '', drinkFrequency: '' },
+    exercise: { frequency: '', name: '', type: '', activityFactor: '' },
+    exerciseList: [
+      { frequency: '', name: '', type: '' }
+    ]
+  },
+  anthropometry: {
+    height: '',
+    weight: '',
+    weightDate: '',
+    waist: '',
+    weightChange: '',
+    bmi: '',
+    ibw: '',
+    abw: '',
+    bodyFat: '',
+    edema: '無',
+    notes: '',
+    rightArmMuscle: '',
+    leftArmMuscle: '',
+    rightLegMuscle: '',
+    leftLegMuscle: '',
+    gripStrength: '',
+    sarcopeniaResult: ''
+  },
+  biochemistry: {
+    BP: '', AC: '', PC: '', HbA1c: '', BUN: '', Cr: '', eGFR: '', UPCR: '', 
+    UricAcid: '', Na: '', K: '', TC: '', HDL: '', LDL: '', 
+    TG: '', AST: '', ALT: '', Alb: ''
+  },
+  biochemistryNotes: '',
+  biochemistryDate: new Date().toISOString().split('T')[0],
+  clinical: {
+    giStatus: [],
+    giStatusOther: '',
+    medicalHx: [],
+    medicalHxOther: '',
+    kidneyStage: '',
+    medications: ''
+  },
+  diet: {
+    type: '口服',
+    frequency: '',
+    preference: '葷',
+    targetKcal: '',
+    targetProtein: '',
+    targetWater: '',
+    currentWater: '',
+    currentWaterNotes: '',
+    supplements: '',
+    allergies: [],
+    allergiesOther: '',
+    meals: [],
+    mealsOther: '',
+    notes: '',
+    intakeNotes: '',
+    logs: [],
+    dietDate: new Date().toISOString().split('T')[0],
+    dietHistory: []
+  },
+  diagnoses: [],
+  intervention: {
+    dietType: 'DM',
+    customGuidelines: {},
+    educationTopics: [],
+    educationNotes: '',
+    mealPlan: {},
+    referral: '',
+    macroConfig: {
+      carbsPercent: 50,
+      proteinPercent: 20,
+      fatPercent: 30
+    },
+    portions: {
+      '低脂乳品': 0,
+      '全脂乳品': 0,
+      '全榖雜糧': 0,
+      '低脂豆魚蛋肉': 0,
+      '中脂豆魚蛋肉': 0,
+      '蔬菜': 0,
+      '水果': 0,
+      '堅果': 0,
+      '低氮澱粉': 0
+    }
+  },
+  monitoring: {
+    history: [],
+    weightHistory: [],
+    biochemHistory: [],
+    nextDate: '',
+    plan: '',
+    selectedIndicators: []
+  },
+  dietitian: '營養師',
+  counselingType: '糖尿病營養方針',
+  reminderNotes: '',
+  educationImages: [],
+  guidelineSelections: {}
+};
+
+const calculateAge = (birthday: string) => {
+  if (!birthday) return 0;
+  const birthDate = new Date(birthday);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+};
+
+const parseCalorie = (val: string | number | undefined | null): number => {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  const str = val.toString().trim();
+  if (!str) return 0;
+  const parts = str.split(/[~-]/).map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+  if (parts.length === 0) return 0;
+  return parts[parts.length - 1]; // Return the last element (upper bound)
+};
+
+const GuidelineCheckbox = ({ label, id, state, setState }: { label: string, id: string, state: AppState, setState: any }) => (
+  <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
+    <input 
+      type="checkbox" 
+      checked={!!state.guidelineSelections[id]} 
+      onChange={e => setState({
+        ...state, 
+        guidelineSelections: {
+          ...state.guidelineSelections, 
+          [id]: e.target.checked
+        }
+      })}
+      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+    />
+    <span className="text-sm text-slate-700">{label}</span>
+  </label>
+);
+
+const Dashboard = ({ 
+  patients, 
+  history, 
+  setIsPatientModalOpen, 
+  setHistoryFilter, 
+  setIsHistoryOpen, 
+  loadRecord, 
+  setState, 
+  setActivePage, 
+  setActiveTab, 
+  deletePatient,
+  handlePatientAction,
+  calculateAge,
+  currentMonth,
+  setCurrentMonth,
+  INITIAL_STATE,
+  selectedFollowupPatient,
+  setSelectedFollowupPatient,
+  overviewNotes,
+  setOverviewNotes,
+  isOverviewNotesExpanded,
+  setIsOverviewNotesExpanded,
+  expandedPatientNotes,
+  setExpandedPatientNotes,
+  handleSaveOverviewNotes,
+  handleUpdatePatientNotes,
+  handleUpdatePatientFollowups,
+  setOriginalPatientName
+}: any) => {
+  const [q, setQ] = useState('');
+  const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
+  const filteredPatients = patients.filter((p: Patient) => p.name.toLowerCase().includes(q.toLowerCase()));
+
+  const calendarDays = useMemo(() => {
+    const start = startOfWeek(startOfMonth(currentMonth));
+    const end = endOfWeek(endOfMonth(currentMonth));
+    return eachDayOfInterval({ start, end });
+  }, [currentMonth]);
+
+  const upcomingEvents = useMemo(() => {
+    const events: any[] = [];
+    patients.forEach((p: Patient) => {
+      const followups = getPatientFollowups(p);
+      followups.forEach((f: any) => {
+        let date;
+        try {
+          date = parseISO(f.date);
+        } catch (e) {
+          return;
+        }
+        events.push({
+          id: f.id,
+          name: p.name,
+          label: f.label,
+          fullLabel: `${p.name} - ${f.label}`,
+          date,
+          patientId: p.id,
+          completed: f.completed || false
+        });
+      });
+    });
+    return events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [patients]);
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">病人總覽</h1>
+          <p className="text-slate-500 text-sm">管理您的諮詢對象與追蹤進度</p>
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="搜尋姓名..."
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            />
+          </div>
+          <button 
+            onClick={() => setIsPatientModalOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95 whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            新增病人
+          </button>
+        </div>
+      </header>
+
+      <div className="space-y-6">
+        {/* Collapsible General Board Note */}
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 space-y-2 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setIsOverviewNotesExpanded(!isOverviewNotesExpanded)}
+            className="w-full flex items-center justify-between text-amber-800 font-bold hover:text-amber-900 cursor-pointer text-left focus:outline-none"
+          >
+            <div className="flex items-center gap-2 text-sm">
+              <FileText className="w-4 h-4 text-amber-700" />
+              <span>📌 備註 / 貼心叮嚀</span>
+            </div>
+            <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">
+              {isOverviewNotesExpanded ? '收合 ▲' : '展開 ▼'}
+            </span>
+          </button>
+          
+          {isOverviewNotesExpanded && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="pt-2 space-y-2"
+            >
+              <textarea
+                value={overviewNotes}
+                onChange={e => {
+                  setOverviewNotes(e.target.value);
+                  handleSaveOverviewNotes(e.target.value);
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-amber-200 h-28 bg-white/80 outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all text-amber-950"
+                placeholder="在此輸入所有團隊人員皆可看見的公用備註或重要事項，內容將即時儲存於雲端資料庫..."
+              />
+            </motion.div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100 italic">
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">姓名</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">生日 / 年齡</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">性別</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">追蹤進度</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredPatients.map((p: Patient) => (
+                  <React.Fragment key={p.id}>
+                    <tr className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="font-bold text-slate-800">{p.name}</div>
+                          <button
+                            title="查看/編輯個別備註"
+                            onClick={() => {
+                              setExpandedPatientNotes({
+                                ...expandedPatientNotes,
+                                [p.id!]: !expandedPatientNotes[p.id!]
+                              });
+                            }}
+                            className={`p-1 rounded transition-all text-xs flex items-center gap-0.5 cursor-pointer ${p.notes ? 'bg-amber-50 text-amber-600 border border-amber-200 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+                          >
+                            <span>📝</span>
+                            {p.notes && <span className="text-[10px] scale-90">有備註</span>}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-slate-600">{p.birthday || '--'}</div>
+                        <div className="text-xs text-slate-400">{p.birthday ? calculateAge(p.birthday) : '--'} 歲</div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{p.gender}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {/* 諮詢 */}
+                          <button 
+                            title="諮詢"
+                            onClick={() => handlePatientAction(p.id!, 'consultation', !p.checklist?.consultation)}
+                            className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
+                              p.checklist?.consultation
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                            }`}
+                          >
+                            諮
+                          </button>
+                          {/* 個人化訊息 */}
+                          <button 
+                            title="個人化訊息"
+                            onClick={() => handlePatientAction(p.id!, 'personalizedMsg', !p.checklist?.personalizedMsg)}
+                            className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${
+                              p.checklist?.personalizedMsg
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                            }`}
+                          >
+                            框
+                          </button>
+                          
+                          {/* Dynamic follow-ups */}
+                          {getPatientFollowups(p).map((f: any, index: number) => (
+                            <button 
+                              key={f.id || index}
+                              title={`${f.label} (${f.date}) - ${f.completed ? '已完成' : '未完成'}`}
+                              onClick={async () => {
+                                const followups = getPatientFollowups(p);
+                                const updated = followups.map((item: any, idx: number) => 
+                                  (item.id === f.id || idx === index) ? { ...item, completed: !item.completed } : item
+                                );
+                                await handleUpdatePatientFollowups(p.id!, updated);
+                              }}
+                              className={`px-1.5 min-w-[24px] h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all truncate max-w-[64px] ${
+                                f.completed
+                                  ? 'bg-blue-600 text-white shadow-sm'
+                                  : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                              }`}
+                            >
+                              {f.label.replace(' f/u', '').replace('st', '').replace('nd', '').replace('rd', '').replace('th', '')}
+                            </button>
+                          ))}
+
+                          {/* Settings Button */}
+                          <button
+                            title="自訂追蹤行程與次數"
+                            onClick={() => setSelectedFollowupPatient(p)}
+                            className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600 border border-dashed border-slate-200 hover:border-blue-200 transition-all cursor-pointer"
+                          >
+                            ⚙️
+                          </button>
+                        </div>
+                      </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        {(() => {
+                          const latest = history
+                            .filter((h: any) => h.clientName === p.name)
+                            .sort((a: any, b: any) => b.consultDate.localeCompare(a.consultDate))[0];
+                          
+                          return (
+                            <button 
+                              onClick={() => {
+                                if (latest) {
+                                  loadRecord(latest);
+                                } else {
+                                  // If no history, start a new one with patient info
+                                  setState({
+                                    ...INITIAL_STATE,
+                                    id: undefined,
+                                    consultDate: new Date().toISOString().split('T')[0],
+                                    clientHx: {
+                                      ...INITIAL_STATE.clientHx,
+                                      name: p.name,
+                                      gender: p.gender,
+                                      birthday: p.birthday
+                                    }
+                                  });
+                                  setOriginalPatientName(p.name);
+                                }
+                                setActivePage('consultation');
+                                setActiveTab('assessment');
+                              }}
+                              className="bg-green-50 hover:bg-green-100 text-green-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 shadow-sm whitespace-nowrap"
+                            >
+                              <FileText className="w-3 h-3" />
+                              {latest ? '編輯紀錄' : '建立紀錄'}
+                            </button>
+                          );
+                        })()}
+                        <button 
+                          onClick={(e) => {
+                            console.log('Trash button clicked for patient:', p.name);
+                            deletePatient(e, p);
+                          }}
+                          className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 shadow-sm"
+                          title="刪除個案"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                    {/* Expandable Individual Notes row */}
+                    {expandedPatientNotes[p.id!] && (
+                      <tr className="bg-slate-50/50">
+                        <td colSpan={5} className="px-6 py-4 border-t border-slate-100">
+                          <div className="flex flex-col gap-2 max-w-2xl bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                            <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                              <span>📝 患者個別備註 ({p.name})</span>
+                            </label>
+                            <textarea
+                              defaultValue={p.notes || ''}
+                              id={`notes-textarea-${p.id}`}
+                              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-20 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-800 bg-white"
+                              placeholder="輸入有關此患者的特殊狀況、偏好、需要特別叮嚀之處..."
+                            />
+                            <div className="flex justify-end gap-2 mt-1">
+                              <button
+                                onClick={() => {
+                                  setExpandedPatientNotes({
+                                    ...expandedPatientNotes,
+                                    [p.id!]: false
+                                  });
+                                }}
+                                className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const el = document.getElementById(`notes-textarea-${p.id}`) as HTMLTextAreaElement;
+                                  if (el) {
+                                    await handleUpdatePatientNotes(p.id!, el.value);
+                                    setExpandedPatientNotes({
+                                      ...expandedPatientNotes,
+                                      [p.id!]: false
+                                    });
+                                  }
+                                }}
+                                className="px-3 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-xs"
+                              >
+                                儲存備註
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+                {filteredPatients.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic font-mono uppercase tracking-widest text-[10px]">
+                      尚無病人紀錄
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4">
+            <button
+              type="button"
+              onClick={() => setIsCalendarExpanded(!isCalendarExpanded)}
+              className="flex items-center gap-2 text-left hover:text-blue-600 transition-colors focus:outline-none cursor-pointer"
+            >
+              <Calendar className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                追蹤行程行事曆 (Follow-up Calendar)
+                <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
+                  {isCalendarExpanded ? '收合 ▲' : '展開 ▼'}
+                </span>
+              </h2>
+            </button>
+            {isCalendarExpanded && (
+              <div className="flex items-center gap-3 bg-slate-50 p-1 rounded-xl border border-slate-100">
+                <button 
+                  onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+                  className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-slate-400 hover:text-blue-600"
+                >
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                </button>
+                <div className="text-sm font-black text-slate-700 min-w-[100px] text-center uppercase tracking-widest">
+                  {format(currentMonth, 'yyyy年 M月')}
+                </div>
+                <button 
+                  onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                  className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-slate-400 hover:text-blue-600"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {isCalendarExpanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-7 border-t border-l border-slate-100 mb-2">
+                {['週日', '週一', '週二', '週三', '週四', '週五', '週六'].map(d => (
+              <div key={d} className="py-2 text-center text-[10px] font-bold text-slate-400 border-r border-b border-slate-100 bg-slate-50/50">
+                {d}
+              </div>
+            ))}
+            {calendarDays.map((day: Date, i: number) => {
+              const dayEvents = upcomingEvents.filter(ev => isSameDay(ev.date, day));
+              const isCurrentMonth = isSameMonth(day, currentMonth);
+              const isToday = isSameDay(day, new Date());
+
+              return (
+                <div 
+                  key={i} 
+                  className={`min-h-[110px] p-1 border-r border-b border-slate-100 transition-colors ${
+                    isCurrentMonth ? 'bg-white' : 'bg-slate-50/30'
+                  } ${isToday ? 'ring-1 ring-blue-500 ring-inset relative z-10' : ''}`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className={`text-[10px] font-mono font-bold ${
+                      isToday ? 'bg-blue-600 text-white px-1.5 rounded-full' : 
+                      isCurrentMonth ? 'text-slate-500' : 'text-slate-300'
+                    }`}>
+                      {format(day, 'd')}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    {dayEvents.map((ev, idx) => (
+                          <button 
+                            key={idx}
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const p = patients.find((pat: Patient) => pat.id === ev.patientId);
+                              if (!p) return;
+                              const followups = getPatientFollowups(p);
+                              const updated = followups.map((item: any) => 
+                                (item.id === ev.id) ? { ...item, completed: !item.completed } : item
+                              );
+                              await handleUpdatePatientFollowups(p.id!, updated);
+                            }}
+                            className={`text-[9px] p-1 rounded font-bold border transition-colors w-full text-left truncate flex items-center gap-1 group cursor-pointer ${
+                              ev.completed 
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 line-through hover:bg-slate-200' 
+                                : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-600 hover:text-white'
+                            }`}
+                            title={`${ev.fullLabel} (${ev.completed ? '已完成' : '未完成'}，點擊切換狀態)`}
+                          >
+                            <div className={`w-1 h-1 rounded-full shrink-0 ${
+                              ev.completed 
+                                ? 'bg-slate-300 group-hover:bg-slate-400' 
+                                : 'bg-blue-400 group-hover:bg-white'
+                            }`} />
+                            {ev.fullLabel}
+                          </button>
+                        ))}
+                      </div>
+                  </div>
+              );
+            })}
+          </div>
+          
+          <div className="mt-4 flex flex-wrap gap-4">
+            <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                  <span className="text-[10px] text-slate-500 font-medium">預定追蹤 (未完成)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200 border border-slate-300" />
+                  <span className="text-[10px] text-slate-500 font-medium">已完成追蹤</span>
+                </div>
+                <div className="flex items-center gap-1.5 ml-auto text-[10px] text-slate-400 italic">
+                  <Info className="w-3 h-3 text-slate-400" />
+                  點擊行事曆中的行程，可直接切換「已完成/未完成」狀態
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PORT_VALS: Record<string, { p: number, c: number, f: number, k: number }> = {
+  '低脂乳品': { p: 8, c: 12, f: 4, k: 120 },
+  '全脂乳品': { p: 8, c: 12, f: 8, k: 150 },
+  '全榖雜糧': { p: 2, c: 15, f: 0, k: 70 },
+  '低脂豆魚蛋肉': { p: 7, c: 0, f: 3, k: 55 },
+  '中脂豆魚蛋肉': { p: 7, c: 0, f: 5, k: 75 },
+  '蔬菜': { p: 1, c: 5, f: 0, k: 25 },
+  '水果': { p: 0, c: 15, f: 0, k: 60 },
+  '堅果': { p: 0, c: 0, f: 5, k: 45 },
+  '低氮澱粉': { p: 1, c: 15, f: 0, k: 64 }
+};
+
+const DIET_MATRIX_ROW_CATEGORIES = [
+  '全脂乳品類',
+  '低脂乳品類',
+  '全穀雜糧類',
+  '低脂豆魚蛋肉類',
+  '中脂豆魚蛋肉類',
+  '高脂豆魚蛋肉類',
+  '蔬菜類',
+  '水果類',
+  '油脂與堅果類',
+  '外食類',
+  '醬料類',
+  '保健品'
+];
+
+const getRowCategory = (itemCat: string): string => {
+  const norm = itemCat || '';
+  if (norm.includes('全脂乳品') || norm.includes('全脂奶')) return '全脂乳品類';
+  if (norm.includes('低脂乳品') || norm.includes('低脂奶')) return '低脂乳品類';
+  if (norm.includes('全穀') || norm.includes('全榖') || norm.includes('全谷') || norm.includes('根莖') || norm.includes('雜糧') || norm.includes('主食') || norm.includes('澱粉')) return '全穀雜糧類';
+  if (norm.includes('低脂豆魚') || norm.includes('低脂肉')) return '低脂豆魚蛋肉類';
+  if (norm.includes('中脂豆魚') || norm.includes('中脂肉')) return '中脂豆魚蛋肉類';
+  if (norm.includes('高脂豆魚') || norm.includes('高脂肉')) return '高脂豆魚蛋肉類';
+  if (norm.includes('蔬菜')) return '蔬菜類';
+  if (norm.includes('水果')) return '水果類';
+  if (norm.includes('油脂') || norm.includes('堅果') || norm.includes('油脂與堅果')) return '油脂與堅果類';
+  if (norm.includes('飲料') || norm.includes('鹹酥雞') || norm.includes('咸酥鸡') || norm.includes('火鍋') || norm.includes('火锅') || norm.includes('外食')) return '外食類';
+  if (norm.includes('醬料')) return '醬料類';
+  if (norm.includes('保健')) return '保健品';
+  return '外食類';
+};
+
+const getPatientFollowups = (p: Patient) => {
+  if (p.followups !== undefined && p.followups !== null) {
+    return p.followups;
+  }
+  let base = new Date();
+  if (p.consultDate) {
+    try { base = parseISO(p.consultDate); } catch (e) {}
+  } else if (p.createdAt) {
+    try { base = p.createdAt.toDate(); } catch (e) {}
+  }
+  return [
+    { id: 'fu1', label: '1st f/u', date: format(addDays(base, 14), 'yyyy-MM-dd'), completed: p.checklist?.fu1 || false },
+  ];
+};
+
+const CALCIUM_TYPES = {
+  carbonate: {
+    name: '碳酸鈣 (Calcium Carbonate)',
+    percentage: 0.40,
+    absorption: 0.25,
+    sideEffect: '容易脹氣、便秘、口乾。',
+    tip: '鈣元素比例高(達40%)。因極需要胃酸解離才能吸收，故必須「隨餐或飯後立即服用」。不適合胃酸不足者(如長期服用制酸劑胃藥、高齡長者、胃切除者)。'
+  },
+  citrate: {
+    name: '檸檬酸鈣 (Calcium Citrate)',
+    percentage: 0.21,
+    absorption: 0.35,
+    sideEffect: '極少，溫和不刺激。',
+    tip: '鈣元素比例約21%，但吸收率高(達35%)。解離不需要胃酸分泌配合，因此「空腹、飯前或任何時間服用皆可」。不影響消化，適合年長者、胃酸不足、及易便秘的個案。'
+  },
+  algae: {
+    name: '天然海藻鈣 (Algae Calcium)',
+    percentage: 0.32,
+    absorption: 0.35,
+    sideEffect: '極溫和。',
+    tip: '源自深海紅藻，為純素天然鈣源。含鈣量約32%，吸收率約35%且具多孔性蜂巢結構，人體利用率極高。含有豐富海洋微量元素(如鎂、鋅等)，對消化道極為溫和不刺激。'
+  },
+  lactate: {
+    name: '乳酸鈣 (Calcium Lactate)',
+    percentage: 0.13,
+    absorption: 0.29,
+    sideEffect: '極溫和，需注意乳製品敏感。',
+    tip: '含鈣量偏低(約13%)，吸收率約29%。水溶性非常好，常做成粉劑、發泡錠，對腸胃負擔輕。市售產品素食者需留意發酵來源。'
+  },
+  gluconate: {
+    name: '葡萄糖酸鈣 (Calcium Gluconate)',
+    percentage: 0.09,
+    absorption: 0.27,
+    sideEffect: '極少。',
+    tip: '含鈣量極低(僅約9%)，吸收率約27%。因含鈣量極低，要達到高劑量口服往往需要極大錠劑或多顆服用，故多數用於臨床點滴針劑，或極溫和、易溶解的兒童與寵物營養品中。'
+  },
+  chelate: {
+    name: '胺基酸螯合鈣 (Calcium Amino Acid Chelate)',
+    percentage: 0.16,
+    absorption: 0.80,
+    sideEffect: '無副作用。',
+    tip: '將鈣離子夾在兩個胺基酸分子中間(螯合)。含鈣量約16%，但其超高吸收率達80%以上！不需胃酸、不刺激腸胃，可空腹或任意時間服用，不與飲食中草酸或植酸競爭。成本較昂貴。'
+  }
+};
+
+const CALCIUM_DRI_GROUPS = {
+  child_small: { name: '4-6 歲幼童', dri: 600 },
+  child_mid: { name: '7-9 歲兒童', dri: 800 },
+  child_large: { name: '10-12 歲兒童', dri: 1000 },
+  teenager: { name: '13-18 歲青少年', dri: 1200 },
+  adult: { name: '19 歲以上成人', dri: 1000 },
+  pregnant: { name: '孕期 / 哺乳媽媽', dri: 1000 }
+};
+
+export default function App() {
+  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const [originalPatientName, setOriginalPatientName] = useState<string | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginError, setLoginError] = useState<{ message: string; isWarning?: boolean } | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const calculateCKDEPI2021 = useCallback(() => {
+    const scr = parseFloat(state.biochemistry.Cr);
+    const age = calculateAge(state.clientHx.birthday);
+    const isFemale = state.clientHx.gender === '女';
+    
+    if (isNaN(scr) || scr <= 0 || !age) return null;
+
+    const k = isFemale ? 0.7 : 0.9;
+    const alpha = isFemale ? -0.241 : -0.302;
+    const genderFactor = isFemale ? 1.012 : 1;
+    
+    // Formula: 142 x min(Scr/k, 1)^alpha x max(Scr/k, 1)^-1.200 x 0.9938^age x 1.012 [if female]
+    const gfr = 142 * 
+      Math.pow(Math.min(scr / k, 1), alpha) * 
+      Math.pow(Math.max(scr / k, 1), -1.2) * 
+      Math.pow(0.9938, age) * 
+      genderFactor;
+    
+    return gfr.toFixed(1);
+  }, [state.biochemistry.Cr, state.clientHx.birthday, state.clientHx.gender]);
+
+  const updateEGFR = () => {
+    const egfr = calculateCKDEPI2021();
+    if (egfr) {
+      setState({
+        ...state,
+        biochemistry: {
+          ...state.biochemistry,
+          eGFR: egfr
+        }
+      });
+    } else {
+      alert('請先輸入 Creatinine (Cr) 及個案生日、性別');
+    }
+  };
+
+  const [entrancePassword, setEntrancePassword] = useState('');
+  const [isEntrancePwdVerified, setIsEntrancePwdVerified] = useState(() => {
+    return sessionStorage.getItem('ncp_entrance_pwd_verified') === 'true';
+  });
+  const [entrancePwdError, setEntrancePwdError] = useState('');
+
+  const handleVerifyEntrancePassword = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (entrancePassword.trim() === '0808') {
+      setIsEntrancePwdVerified(true);
+      sessionStorage.setItem('ncp_entrance_pwd_verified', 'true');
+      setEntrancePwdError('');
+    } else {
+      setEntrancePwdError('密碼錯誤，請重新輸入');
+    }
+  };
+
+  const [activePage, setActivePage] = useState<'dashboard' | 'consultation'>('dashboard');
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [activeTab, setActiveTab] = useState<'assessment' | 'diagnosis' | 'intervention' | 'monitoring' | 'reminder' | 'medications' | 'tentative'>('assessment');
+  const [tentativePassword, setTentativePassword] = useState('');
+  const [isTentativeUnlocked, setIsTentativeUnlocked] = useState(false);
+  const [tentativeError, setTentativeError] = useState('');
+  const [tentativeSubTab, setTentativeSubTab] = useState<'frax' | 'heart'>('frax');
+  const [calcGroup, setCalcGroup] = useState<'child_small' | 'child_mid' | 'child_large' | 'teenager' | 'adult' | 'pregnant'>('adult');
+  const [isCalciumExpanded, setIsCalciumExpanded] = useState(false);
+  const [isLiverGuideExpanded, setIsLiverGuideExpanded] = useState(true);
+  const [showDiagTerminology, setShowDiagTerminology] = useState(false);
+  const [selectedFollowupPatient, setSelectedFollowupPatient] = useState<Patient | null>(null);
+  const [modalFollowups, setModalFollowups] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (selectedFollowupPatient) {
+      setModalFollowups(getPatientFollowups(selectedFollowupPatient));
+    } else {
+      setModalFollowups([]);
+    }
+  }, [selectedFollowupPatient]);
+  const [overviewNotes, setOverviewNotes] = useState('');
+  const [isOverviewNotesExpanded, setIsOverviewNotesExpanded] = useState(false);
+  const [expandedPatientNotes, setExpandedPatientNotes] = useState<Record<string, boolean>>({});
+  const [clickedDietHistoryDate, setClickedDietHistoryDate] = useState<string | null>(null);
+  const [dietHistoryExpanded, setDietHistoryExpanded] = useState(false);
+  const [diagTerminologyActiveTab, setDiagTerminologyActiveTab] = useState<'NI' | 'NC' | 'NB'>('NI');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [medicationSearchQuery, setMedicationSearchQuery] = useState('');
+  const [medSearchInput, setMedSearchInput] = useState('');
+  const [isMedDropdownOpen, setIsMedDropdownOpen] = useState(false);
+
+  const getCleanMedName = useCallback((name: string) => {
+    return name.replace(/^[^\w\u4e00-\u9fa5]+/g, '').trim();
+  }, []);
+  const [selectedFoodCategory, setSelectedFoodCategory] = useState<string>('');
+  const [selectedFoodItem, setSelectedFoodItem] = useState<string>('');
+  const [selectedMeal, setSelectedMeal] = useState('早餐');
+  const [portionInput, setPortionInput] = useState<number>(1);
+  const [editingCell, setEditingCell] = useState<{ category: string; meal: string } | null>(null);
+  const [editingCellItems, setEditingCellItems] = useState<{ id: string; name: string; qty: number; category: string }[]>([]);
+  const [cellNewFoodName, setCellNewFoodName] = useState<string>('');
+  const [cellNewFoodQty, setCellNewFoodQty] = useState<number>(1);
+
+  const handleCellDoubleClick = (category: string, meal: string) => {
+    const cellItems = state.diet.logs.filter(
+      log => getRowCategory(log.category) === category && log.meal === meal
+    ).map(item => ({
+      id: item.id,
+      name: item.name,
+      qty: item.qty,
+      category: item.category
+    }));
+    setEditingCell({ category, meal });
+    setEditingCellItems(cellItems);
+    setCellNewFoodName('');
+    setCellNewFoodQty(1);
+  };
+
+  const handleSaveCellPortions = () => {
+    if (!editingCell) return;
+    const { category, meal } = editingCell;
+
+    const otherLogs = state.diet.logs.filter(
+      log => !(getRowCategory(log.category) === category && log.meal === meal)
+    );
+
+    const updatedLogs = editingCellItems
+      .filter(item => item.qty > 0)
+      .map(item => {
+        const originalLog = state.diet.logs.find(l => l.id === item.id);
+        if (originalLog) {
+          return { ...originalLog, qty: item.qty };
+        }
+        return null;
+      })
+      .filter((log): log is NonNullable<typeof log> => log !== null);
+
+    let addedLog = null;
+    if (cellNewFoodName) {
+      const food = FOOD_DATABASE.find(f => f.name === cellNewFoodName);
+      if (food) {
+        const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+        addedLog = {
+          ...food,
+          category: targetCategory,
+          id: Math.random().toString(36).substr(2, 9),
+          qty: cellNewFoodQty,
+          meal
+        };
+      }
+    }
+
+    const finalLogs = [
+      ...otherLogs,
+      ...updatedLogs,
+      ...(addedLog ? [addedLog] : [])
+    ];
+
+    setState({
+      ...state,
+      diet: {
+        ...state.diet,
+        logs: finalLogs
+      }
+    });
+
+    setEditingCell(null);
+  };
+  const [currentDiagnosis, setCurrentDiagnosis] = useState<PES>({ id: '', domain: '', problem: '', etiology: '', symptom: '' });
+
+  const toggleSymptomCheckbox = (symptomName: string) => {
+    let currentList = currentDiagnosis.symptom 
+      ? currentDiagnosis.symptom.split('、').map(x => x.trim()).filter(Boolean) 
+      : [];
+    if (currentList.includes(symptomName)) {
+      currentList = currentList.filter(x => x !== symptomName);
+    } else {
+      currentList = [...currentList, symptomName];
+    }
+    const joined = currentList.join('、');
+    setCurrentDiagnosis({
+      ...currentDiagnosis,
+      symptom: joined,
+      symptomOther: joined
+    });
+  };
+
+  const selectAllSymptoms = () => {
+    if (!currentDiagnosis.problem || currentDiagnosis.problem === '其他') return;
+    const standardSymptoms = DIAG_DATA[currentDiagnosis.domain as keyof typeof DIAG_DATA]?.problems[currentDiagnosis.problem]?.symptoms || [];
+    const joined = standardSymptoms.join('、');
+    setCurrentDiagnosis({
+      ...currentDiagnosis,
+      symptom: joined,
+      symptomOther: joined
+    });
+  };
+
+  const clearAllSymptoms = () => {
+    setCurrentDiagnosis({
+      ...currentDiagnosis,
+      symptom: '',
+      symptomOther: ''
+    });
+  };
+  
+  const [manualPrevWeight, setManualPrevWeight] = useState('');
+  const [manualInterval, setManualInterval] = useState<'1w' | '1m' | '6m'>('1m');
+  const [bentoRefExpanded, setBentoRefExpanded] = useState(false);
+  const [dietLogsExpanded, setDietLogsExpanded] = useState(false);
+  const [sarcopeniaExpanded, setSarcopeniaExpanded] = useState(false);
+  const [weightChangeExpanded, setWeightChangeExpanded] = useState(false);
+  const [biochemHistoryExpanded, setBiochemHistoryExpanded] = useState(false);
+  const [guidelinesExpanded, setGuidelinesExpanded] = useState(false);
+  const [biochemRefExpanded, setBiochemRefExpanded] = useState(false);
+  const [clickedWeightHistoryDate, setClickedWeightHistoryDate] = useState<string | null>(null);
+  const [clickedBiochemHistoryDate, setClickedBiochemHistoryDate] = useState<string | null>(null);
+  const [monitoringSubView, setMonitoringSubView] = useState<'all' | 'checklist' | 'weight' | 'biochem'>('all');
+  
+  
+  const toggleMonitoringIndicator = useCallback((id: string) => {
+    setState(prev => {
+      const current = prev.monitoring?.selectedIndicators || [];
+      const updated = current.includes(id)
+        ? current.filter(item => item !== id)
+        : [...current, id];
+      return {
+        ...prev,
+        monitoring: {
+          ...prev.monitoring,
+          selectedIndicators: updated
+        }
+      };
+    });
+  }, []);
+
+  const toggleGroupIndicators = useCallback((groupId: string) => {
+    const group = MONITORING_GROUPS.find(g => g.id === groupId);
+    if (!group) return;
+    const groupItemIds = group.items.map(i => i.id);
+    setState(prev => {
+      const current = prev.monitoring?.selectedIndicators || [];
+      const allSelected = groupItemIds.every(id => current.includes(id));
+      const updated = allSelected
+        ? current.filter(id => !groupItemIds.includes(id))
+        : Array.from(new Set([...current, ...groupItemIds]));
+      return {
+        ...prev,
+        monitoring: {
+          ...prev.monitoring,
+          selectedIndicators: updated
+        }
+      };
+    });
+  }, []);
+
+  const applyMonitoringPreset = useCallback((presetItems: string[]) => {
+    setState(prev => ({
+      ...prev,
+      monitoring: {
+        ...prev.monitoring,
+        selectedIndicators: [...presetItems]
+      }
+    }));
+  }, []);
+
+  const selectAllMonitoringIndicators = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      monitoring: {
+        ...prev.monitoring,
+        selectedIndicators: [...ALL_MONITORING_INDICATOR_IDS]
+      }
+    }));
+  }, []);
+
+  const clearMonitoringIndicators = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      monitoring: {
+        ...prev.monitoring,
+        selectedIndicators: []
+      }
+    }));
+  }, []);
+
+  const insertSelectedIndicatorsToPlan = useCallback(() => {
+    const selected = state.monitoring?.selectedIndicators || [];
+    if (selected.length === 0) {
+      alert('請先勾選至少一項監測指標。');
+      return;
+    }
+    
+    const lines: string[] = [];
+    MONITORING_GROUPS.forEach(group => {
+      const selectedInGroup = group.items.filter(i => selected.includes(i.id)).map(i => i.label);
+      if (selectedInGroup.length > 0) {
+        lines.push(`• ${group.categoryTitle}：${selectedInGroup.join('、')}`);
+      }
+    });
+    
+    const formattedText = `【追蹤監測重點項目】\n${lines.join('\n')}`;
+    const currentPlan = state.monitoring.plan ? state.monitoring.plan.trim() : '';
+    const newPlan = currentPlan ? `${currentPlan}\n\n${formattedText}` : formattedText;
+    
+    setState(prev => ({
+      ...prev,
+      monitoring: {
+        ...prev.monitoring,
+        plan: newPlan
+      }
+    }));
+  }, [state.monitoring?.selectedIndicators, state.monitoring?.plan]);
+  const [currentMonitoring, setCurrentMonitoring] = useState<MonitoringRecord>({
+    date: new Date().toISOString().split('T')[0],
+    weight: '',
+    ac: '',
+    pc: '',
+    hba1c: '',
+    bun: '',
+    cr: '',
+    egfr: '',
+    upcr: '',
+    tg: '',
+    ldl: '',
+    tc: '',
+    uricAcid: '',
+    na: '',
+    k: '',
+    hdl: '',
+    ast: '',
+    alt: '',
+    alb: '',
+    bp: '',
+    other: ''
+  });
+  const [currentWeightRec, setCurrentWeightRec] = useState({
+    date: new Date().toISOString().split('T')[0],
+    weight: '',
+    waist: '',
+    bodyFat: ''
+  });
+  const [currentBiochemRec, setCurrentBiochemRec] = useState({
+    date: new Date().toISOString().split('T')[0],
+    ac: '',
+    pc: '',
+    hba1c: '',
+    bun: '',
+    cr: '',
+    egfr: '',
+    upcr: '',
+    tg: '',
+    ldl: '',
+    tc: '',
+    uricAcid: '',
+    na: '',
+    k: '',
+    hdl: '',
+    ast: '',
+    alt: '',
+    alb: '',
+    bp: '',
+    other: ''
+  });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setPatients([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'patients'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Patient[];
+      setPatients(docs);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setOverviewNotes('');
+      return;
+    }
+    const docRef = doc(db, 'users', user.uid, 'settings', 'dashboard_notes');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setOverviewNotes(docSnap.data().notes || '');
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const handleSaveOverviewNotes = async (newNotes: string) => {
+    if (!user) return;
+    const docRef = doc(db, 'users', user.uid, 'settings', 'dashboard_notes');
+    await setDoc(docRef, { notes: newNotes }, { merge: true });
+  };
+
+  const handleUpdatePatientNotes = async (patientId: string, notes: string) => {
+    const patientRef = doc(db, 'patients', patientId);
+    await updateDoc(patientRef, {
+      notes,
+      updatedAt: Timestamp.now()
+    });
+  };
+
+  const handleUpdatePatientFollowups = async (patientId: string, followups: any[], extraFields: any = {}) => {
+    const patientRef = doc(db, 'patients', patientId);
+    await updateDoc(patientRef, {
+      followups,
+      ...extraFields,
+      updatedAt: Timestamp.now()
+    });
+  };
+
+  const handlePatientAction = async (patientId: string, action: keyof Patient['checklist'], value: boolean) => {
+    const patientRef = doc(db, 'patients', patientId);
+    await updateDoc(patientRef, {
+      [`checklist.${action}`]: value,
+      updatedAt: Timestamp.now()
+    });
+  };
+
+  const handleAddPatient = async (name: string, birthday: string, gender: any) => {
+    if (!user) return;
+    const newPatient: Omit<Patient, 'id'> = {
+      userId: user.uid,
+      name,
+      birthday,
+      gender,
+      checklist: {
+        consultation: false,
+        personalizedMsg: false,
+        fu1: false,
+        fu2: false,
+        fu3: false,
+        fu4: false
+      },
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    };
+    await addDoc(collection(db, 'patients'), newPatient);
+  };
+
+  const [history, setHistory] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // History Listener
+  useEffect(() => {
+    if (!user) {
+      setHistory([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'consultations'),
+      where('userId', '==', user.uid),
+      orderBy('updatedAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setHistory(docs);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // BMI, IBW, ABW Calculation
+  useEffect(() => {
+    const h = parseFloat(state.anthropometry.height);
+    const w = parseFloat(state.anthropometry.weight);
+    const birthday = state.clientHx.birthday;
+
+    if (h > 0 && w > 0) {
+      const h_m = h / 100;
+      const bmi = (w / (h_m * h_m)).toFixed(1);
+      
+      // Age calculation
+      let age = 0;
+      if (birthday) {
+        const birthDate = new Date(birthday);
+        const today = new Date();
+        age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+          age--;
+        }
+      }
+
+      const ibw_factor = age >= 50 ? 25 : 22;
+      const ibw = (ibw_factor * h_m * h_m).toFixed(1);
+      const abw = ((w - parseFloat(ibw)) / 4 + parseFloat(ibw)).toFixed(1);
+
+      if (bmi !== state.anthropometry.bmi || ibw !== state.anthropometry.ibw || abw !== state.anthropometry.abw) {
+        setState(prev => ({
+          ...prev,
+          anthropometry: { ...prev.anthropometry, bmi, ibw, abw }
+        }));
+      }
+    }
+  }, [state.anthropometry.height, state.anthropometry.weight, state.clientHx.birthday, state.anthropometry.bmi, state.anthropometry.ibw, state.anthropometry.abw]);
+
+  // Daily Calorie Requirement Calculation
+  const recommendedKcal = useMemo(() => {
+    const bmi = parseFloat(state.anthropometry.bmi);
+    const weight = parseFloat(state.anthropometry.weight);
+    const abw = parseFloat(state.anthropometry.abw);
+    const factor = state.clientHx.exercise.activityFactor;
+
+    if (!bmi || !weight || !factor) return '';
+
+    let baseWeight = weight;
+    if (bmi < 18.5 || bmi >= 24) {
+      baseWeight = abw;
+    }
+
+    if (factor === '無' || factor === '輕度') {
+      const minVal = Math.round(baseWeight * 20);
+      const maxVal = Math.round(baseWeight * 25);
+      return `${minVal} ~ ${maxVal}`;
+    } else if (factor === '中度') {
+      return `${Math.round(baseWeight * 30)}`;
+    } else if (factor === '重度') {
+      return `${Math.round(baseWeight * 35)}`;
+    }
+
+    return '';
+  }, [state.anthropometry.bmi, state.anthropometry.weight, state.anthropometry.abw, state.clientHx.exercise.activityFactor]);
+
+  // Recommended Harris Benedict Calorie requirement calculation
+  const recommendedHBKcal = useMemo(() => {
+    const gender = state.clientHx.gender;
+    const weight = parseFloat(state.anthropometry.weight);
+    const height = parseFloat(state.anthropometry.height);
+    const age = calculateAge(state.clientHx.birthday);
+
+    if (isNaN(weight) || isNaN(height) || age <= 0) {
+      return { err: '請填寫基本資料 (性別, 生日, 身高, 體重)', bee: 0, total: 0 };
+    }
+
+    let bee = 0;
+    if (gender === '男') {
+      bee = 66 + 13.7 * weight + 5 * height - 6.8 * age;
+    } else {
+      bee = 655 + 9.6 * weight + 1.8 * height - 4.7 * age;
+    }
+
+    const valueActivity = state.guidelineSelections.hbActivity !== undefined ? parseFloat(state.guidelineSelections.hbActivity) : 1.3;
+    const valueStress = state.guidelineSelections.hbStress !== undefined ? parseFloat(state.guidelineSelections.hbStress) : 1.0;
+
+    const total = bee * valueActivity * valueStress;
+    return {
+      err: null,
+      bee: parseFloat(bee.toFixed(1)),
+      total: Math.round(total)
+    };
+  }, [state.clientHx.gender, state.anthropometry.weight, state.anthropometry.height, state.clientHx.birthday, state.guidelineSelections.hbActivity, state.guidelineSelections.hbStress]);
+
+  // Recommended Macros Breakdown
+  const recommendedMacros = useMemo(() => {
+    const kcal = parseCalorie(state.diet.targetKcal) || parseCalorie(recommendedKcal);
+    if (!kcal) return null;
+    const config = state.intervention.macroConfig || { carbsPercent: 55, proteinPercent: 15, fatPercent: 30 };
+    const cp = parseFloat(config.carbsPercent as any) || 0;
+    const pp = parseFloat(config.proteinPercent as any) || 0;
+    const fp = parseFloat(config.fatPercent as any) || 0;
+    return {
+      carbs: ((kcal * (cp / 100)) / 4).toFixed(1),
+      protein: ((kcal * (pp / 100)) / 4).toFixed(1),
+      fat: ((kcal * (fp / 100)) / 9).toFixed(1)
+    };
+  }, [recommendedKcal, state.diet.targetKcal, state.intervention.macroConfig]);
+
+  // Recommended Water Intake Calculation (Weight * 30)
+  const recommendedWater = useMemo(() => {
+    const weight = parseFloat(state.anthropometry.weight);
+    if (!weight) return 0;
+    return Math.round(weight * 30);
+  }, [state.anthropometry.weight]);
+
+  // Sarcopenia Analysis and Dynamic Diagnosis (AWGS 2025)
+  const sarcopeniaAnalysis = useMemo(() => {
+    const h = parseFloat(state.anthropometry.height);
+    const weight = parseFloat(state.anthropometry.weight);
+    const rArm = parseFloat(state.anthropometry.rightArmMuscle || '');
+    const lArm = parseFloat(state.anthropometry.leftArmMuscle || '');
+    const rLeg = parseFloat(state.anthropometry.rightLegMuscle || '');
+    const lLeg = parseFloat(state.anthropometry.leftLegMuscle || '');
+    const grip = parseFloat(state.anthropometry.gripStrength || '');
+    const gender = state.clientHx.gender;
+    const age = calculateAge(state.clientHx.birthday);
+
+    if (isNaN(h) || h <= 0 || isNaN(rArm) || isNaN(lArm) || isNaN(rLeg) || isNaN(lLeg) || isNaN(grip) || !gender || age <= 0) {
+      return {
+        asmi: null,
+        asmOverBmi: null,
+        result: '資料不足 (請輸入性別、生日、身高、體重、右手/左手/右腳/左腳肌肉量及手握力)',
+        isSarcopenia: false,
+        applicable: false,
+        age
+      };
+    }
+
+    const sumMuscle = rArm + lArm + rLeg + lLeg;
+    // ASM 肌肉量 (ASMI) = 10000*(右手肌肉量+左手肌肉量+右腳肌肉量+左腳肌肉量)/身高/身高
+    const asmiVal = (10000 * sumMuscle) / (h * h);
+    const asmi = asmiVal.toFixed(2);
+
+    // BMI calculation
+    const h_m = h / 100;
+    const computedBmi = (!isNaN(weight) && h_m > 0) ? (weight / (h_m * h_m)) : 0;
+    const bmiVal = parseFloat(state.anthropometry.bmi) || computedBmi;
+
+    // 校正型：ASM肌肉量/BMI = (右手+左手+右腳+左腳) / BMI
+    const asmOverBmiVal = bmiVal > 0 ? (sumMuscle / bmiVal) : 0;
+    const asmOverBmi = asmOverBmiVal.toFixed(3);
+
+    let isSarcopenia = false;
+    let applicable = true;
+
+    // Sarcopenia criteria based on AWGS 2025:
+    // ≥65 歲者，當男性手握力 (kg)<28.0 且 校正型 < 0.83
+    // ≥65 歲者，當女性手握力 (kg)<18.0 且 校正型 < 0.57
+    // 50–64 歲者，當男性手握力 (kg)<34.0 且 校正型 < 0.9
+    // 50–64 歲者，當女性手握力 (kg)<20.0 且 校正型 < 0.63
+    if (age >= 65) {
+      if (gender === '男') {
+        if (grip < 28.0 && asmOverBmiVal < 0.83) isSarcopenia = true;
+      } else if (gender === '女') {
+        if (grip < 18.0 && asmOverBmiVal < 0.57) isSarcopenia = true;
+      }
+    } else if (age >= 50 && age <= 64) {
+      if (gender === '男') {
+        if (grip < 34.0 && asmOverBmiVal < 0.9) isSarcopenia = true;
+      } else if (gender === '女') {
+        if (grip < 20.0 && asmOverBmiVal < 0.63) isSarcopenia = true;
+      }
+    } else {
+      applicable = false;
+    }
+
+    let result = '';
+    if (!applicable) {
+      result = `未達診斷年齡 (目前年齡: ${age} 歲，診斷標準僅適用於 50 歲以上者)`;
+    } else {
+      result = isSarcopenia ? '是 (符合肌少症判斷標準)' : '否 (未符合肌少症判斷標準)';
+    }
+
+    return {
+      asmi,
+      asmOverBmi,
+      result,
+      isSarcopenia,
+      applicable,
+      age
+    };
+  }, [
+    state.anthropometry.height,
+    state.anthropometry.weight,
+    state.anthropometry.bmi,
+    state.anthropometry.rightArmMuscle,
+    state.anthropometry.leftArmMuscle,
+    state.anthropometry.rightLegMuscle,
+    state.anthropometry.leftLegMuscle,
+    state.anthropometry.gripStrength,
+    state.clientHx.gender,
+    state.clientHx.birthday
+  ]);
+
+  // Sync sarcopenia result to state for saving/persistence
+  useEffect(() => {
+    if (state.anthropometry.sarcopeniaResult !== sarcopeniaAnalysis.result) {
+      setState(prev => ({
+        ...prev,
+        anthropometry: {
+          ...prev.anthropometry,
+          sarcopeniaResult: sarcopeniaAnalysis.result
+        }
+      }));
+    }
+  }, [sarcopeniaAnalysis.result, state.anthropometry.sarcopeniaResult]);
+
+  const sortedBioHistory = useMemo(() => {
+    const bioList = state.monitoring?.biochemHistory || [];
+    if (bioList.length > 0) {
+      return [...bioList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+    // Fallback migration to support legacy history records
+    if (!state.monitoring?.history) return [];
+    return [...state.monitoring.history]
+      .filter(h => (h.ac || h.pc || h.hba1c || h.bun || h.cr || h.egfr || h.upcr || h.tg || h.ldl || h.tc || h.uricAcid || h.na || h.k || h.hdl || h.ast || h.alt || h.alb || h.bp || h.other))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [state.monitoring?.biochemHistory, state.monitoring?.history]);
+
+  const sortedWeightHistory = useMemo(() => {
+    const weightList = state.monitoring?.weightHistory || [];
+    if (weightList.length > 0) {
+      return [...weightList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+    // Fallback migration to support legacy history records
+    if (!state.monitoring?.history) return [];
+    return [...state.monitoring.history]
+      .filter(record => record.weight && record.date)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [state.monitoring?.weightHistory, state.monitoring?.history]);
+
+  const weightLossAnalysis = useMemo(() => {
+    const currentWeight = parseFloat(state.anthropometry.weight);
+    if (isNaN(currentWeight) || currentWeight <= 0) {
+      return { hasHistory: false, alerts: [], weekLoss: null, monthLoss: null, sixMonthLoss: null };
+    }
+
+    const weightList = state.monitoring?.weightHistory && state.monitoring?.weightHistory.length > 0
+      ? state.monitoring.weightHistory
+      : (state.monitoring?.history || []).filter(h => h.weight !== undefined && h.weight !== '');
+
+    if (!weightList || weightList.length === 0) {
+      return { hasHistory: false, alerts: [], weekLoss: null, monthLoss: null, sixMonthLoss: null };
+    }
+
+    const currentDate = state.anthropometry.weightDate ? new Date(state.anthropometry.weightDate) : new Date(state.consultDate);
+    const history = weightList.filter(h => h.date && h.weight && new Date(h.date).getTime() < currentDate.getTime());
+
+    if (history.length === 0) {
+      return { hasHistory: false, alerts: [], weekLoss: null, monthLoss: null, sixMonthLoss: null };
+    }
+
+    let weekRecord: any = null;
+    let monthRecord: any = null;
+    let sixMonthRecord: any = null;
+
+    let minWeekDiff = Infinity;
+    let minMonthDiff = Infinity;
+    let minSixMonthDiff = Infinity;
+
+    history.forEach(h => {
+      const hDate = new Date(h.date);
+      const diffDays = (currentDate.getTime() - hDate.getTime()) / (1000 * 60 * 60 * 24);
+      
+      // 1 week (target 7 days, allowed 4 to 14 days)
+      if (diffDays >= 4 && diffDays <= 14) {
+        const diff = Math.abs(diffDays - 7);
+        if (diff < minWeekDiff) {
+          minWeekDiff = diff;
+          weekRecord = h;
+        }
+      }
+      // 1 month (target 30 days, allowed 15 to 45 days)
+      if (diffDays >= 15 && diffDays <= 45) {
+        const diff = Math.abs(diffDays - 30);
+        if (diff < minMonthDiff) {
+          minMonthDiff = diff;
+          monthRecord = h;
+        }
+      }
+      // 6 months (target 180 days, allowed 120 to 240 days)
+      if (diffDays >= 120 && diffDays <= 240) {
+        const diff = Math.abs(diffDays - 180);
+        if (diff < minSixMonthDiff) {
+          minSixMonthDiff = diff;
+          sixMonthRecord = h;
+        }
+      }
+    });
+
+    const getLossStats = (hRecord: any) => {
+      if (!hRecord) return null;
+      const hWeight = parseFloat(hRecord.weight);
+      if (isNaN(hWeight) || hWeight <= 0) return null;
+      const lossVal = hWeight - currentWeight;
+      const lossPct = (lossVal / hWeight) * 100;
+      return {
+        prevWeight: hWeight,
+        date: hRecord.date,
+        lossVal: lossVal.toFixed(1),
+        lossPct: lossPct.toFixed(1),
+        isLoss: lossVal > 0,
+        pct: lossPct
+      };
+    };
+
+    const weekLoss = getLossStats(weekRecord);
+    const monthLoss = getLossStats(monthRecord);
+    const sixMonthLoss = getLossStats(sixMonthRecord);
+
+    const alerts: string[] = [];
+    if (weekLoss && weekLoss.pct >= 2) {
+      alerts.push(`符合【1星期下降 2%】臨床警示 (實際變動量: ${weekLoss.lossPct}%, 期間減少 ${weekLoss.lossVal} kg)`);
+    }
+    if (monthLoss && monthLoss.pct >= 5) {
+      alerts.push(`符合【1個月下降 5%】臨床警示 (實際變動量: ${monthLoss.lossPct}%, 期間減少 ${monthLoss.lossVal} kg)`);
+    }
+    if (sixMonthLoss && sixMonthLoss.pct >= 10) {
+      alerts.push(`符合【6個月下降 10%】臨床警示 (實際變動量: ${sixMonthLoss.lossPct}%, 期間減少 ${sixMonthLoss.lossVal} kg)`);
+    }
+
+    return {
+      hasHistory: true,
+      alerts,
+      weekLoss,
+      monthLoss,
+      sixMonthLoss
+    };
+  }, [state.anthropometry.weight, state.anthropometry.weightDate, state.consultDate, state.monitoring?.history]);
+
+  // Persistence: Save to local storage whenever state changes
+  useEffect(() => {
+    localStorage.setItem('nutrition_counseling_record', JSON.stringify(state));
+  }, [state]);
+
+  // Persistence: Load from local storage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('nutrition_counseling_record');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Merge saved state with INITIAL_STATE to ensure all fields exist
+        setState(prev => {
+          const clientHxMerged = { 
+            ...INITIAL_STATE.clientHx, 
+            ...(parsed.clientHx || {}),
+            habits: {
+              ...INITIAL_STATE.clientHx.habits,
+              ...(parsed.clientHx?.habits || {})
+            }
+          };
+          if (!clientHxMerged.exerciseList || clientHxMerged.exerciseList.length === 0) {
+            clientHxMerged.exerciseList = [
+              {
+                frequency: clientHxMerged.exercise?.frequency || '',
+                name: clientHxMerged.exercise?.name || '',
+                type: clientHxMerged.exercise?.type || ''
+              }
+            ];
+          }
+          return {
+            ...INITIAL_STATE,
+            ...parsed,
+            id: parsed.id, // Explicitly restore ID
+            diagnoses: parsed.diagnoses || [],
+            clientHx: clientHxMerged,
+            anthropometry: { ...INITIAL_STATE.anthropometry, ...(parsed.anthropometry || {}) },
+            biochemistry: { ...INITIAL_STATE.biochemistry, ...(parsed.biochemistry || {}) },
+            clinical: { ...INITIAL_STATE.clinical, ...(parsed.clinical || {}) },
+            diet: { ...INITIAL_STATE.diet, ...(parsed.diet || {}) },
+            intervention: { ...INITIAL_STATE.intervention, ...(parsed.intervention || {}) },
+            monitoring: { ...INITIAL_STATE.monitoring, ...(parsed.monitoring || {}) }
+          };
+        });
+      } catch (e) {
+        console.error('Failed to load saved state', e);
+      }
+    }
+  }, []);
+
+  const handleSave = async () => {
+    if (!user) {
+      alert('請先登入以儲存紀錄。');
+      return;
+    }
+
+    setIsSaving(true);
+    console.group('Saving Record');
+    try {
+      // 1. Prepare clean data mapping - remove ID from the 'data' payload to avoid recursive fields
+      let latestHistory = [...state.monitoring.history];
+      let updatedWeightHistory = [...(state.monitoring.weightHistory || [])];
+      let updatedBiochemHistory = [...(state.monitoring.biochemHistory || [])];
+
+      // Sync weight separately to weightHistory if a weight is entered
+      if (state.anthropometry.weight) {
+        const targetWeightDate = state.anthropometry.weightDate || state.consultDate || new Date().toISOString().split('T')[0];
+        const currentWeight = state.anthropometry.weight;
+        const currentWaist = state.anthropometry.waist || '';
+        const currentBodyFat = state.anthropometry.bodyFat || '';
+        
+        // 1) Legacy backup sync
+        const existingIdx = latestHistory.findIndex(h => h.date === targetWeightDate);
+        if (existingIdx > -1) {
+          latestHistory[existingIdx] = {
+            ...latestHistory[existingIdx],
+            weight: currentWeight,
+            waist: currentWaist,
+            bodyFat: currentBodyFat
+          };
+        } else {
+          latestHistory.push({
+            date: targetWeightDate,
+            weight: currentWeight,
+            waist: currentWaist,
+            bodyFat: currentBodyFat,
+            ac: '', hba1c: '', egfr: '', tg: '', ldl: '', tc: '', uricAcid: '', hdl: '', ast: '', alt: '', bp: '',
+            other: '從體重表單同步'
+          });
+        }
+
+        // 2) Modern weightHistory sync
+        const existingWIdx = updatedWeightHistory.findIndex(h => h.date === targetWeightDate);
+        if (existingWIdx > -1) {
+          updatedWeightHistory[existingWIdx] = {
+            ...updatedWeightHistory[existingWIdx],
+             weight: currentWeight,
+            waist: currentWaist,
+            bodyFat: currentBodyFat
+          };
+        } else {
+          updatedWeightHistory.push({
+            id: Date.now().toString() + '-save-w',
+            date: targetWeightDate,
+            weight: currentWeight,
+            waist: currentWaist,
+            bodyFat: currentBodyFat
+          });
+        }
+      }
+
+      // Sync biochemistry separately to biochemHistory if any biochemistry value exists
+      const biochemDate = state.biochemistryDate || state.consultDate || new Date().toISOString().split('T')[0];
+      const hasAnyBiochem = Object.entries(state.biochemistry).some(([k, val]) => val !== undefined && val !== '');
+      if (hasAnyBiochem) {
+        const biochemPayload = {
+          ac: state.biochemistry.AC || '',
+          pc: state.biochemistry.PC || '',
+          hba1c: state.biochemistry.HbA1c || '',
+          bun: state.biochemistry.BUN || '',
+          cr: state.biochemistry.Cr || '',
+          egfr: state.biochemistry.eGFR || '',
+          upcr: state.biochemistry.UPCR || '',
+          uricAcid: state.biochemistry.UricAcid || '',
+          na: state.biochemistry.Na || '',
+          k: state.biochemistry.K || '',
+          tc: state.biochemistry.TC || '',
+          hdl: state.biochemistry.HDL || '',
+          ldl: state.biochemistry.LDL || '',
+          tg: state.biochemistry.TG || '',
+          ast: state.biochemistry.AST || '',
+          alt: state.biochemistry.ALT || '',
+          alb: state.biochemistry.Alb || '',
+          bp: state.biochemistry.BP || '',
+        };
+
+        // 1) Legacy backup sync
+        const existingIdx = latestHistory.findIndex(h => h.date === biochemDate);
+        if (existingIdx > -1) {
+          latestHistory[existingIdx] = {
+            ...latestHistory[existingIdx],
+            ...biochemPayload,
+            other: latestHistory[existingIdx].other || '從生化表單同步'
+          };
+        } else {
+          latestHistory.push({
+            date: biochemDate,
+            weight: '',
+            ...biochemPayload,
+            other: '從生化表單同步'
+          });
+        }
+
+        // 2) Modern biochemHistory sync
+        const existingBIdx = updatedBiochemHistory.findIndex(h => h.date === biochemDate);
+        const newBRec = {
+          id: Date.now().toString() + '-save-b',
+          date: biochemDate,
+          ...biochemPayload,
+          weight: state.anthropometry.weight || '',
+          other: '儲存時同步'
+        };
+
+        if (existingBIdx > -1) {
+          updatedBiochemHistory[existingBIdx] = {
+            ...updatedBiochemHistory[existingBIdx],
+            ...newBRec,
+            id: updatedBiochemHistory[existingBIdx].id || newBRec.id
+          };
+        } else {
+          updatedBiochemHistory.push(newBRec);
+        }
+      }
+
+      // Sort both histories
+      latestHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      updatedWeightHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      updatedBiochemHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // Update local state first
+      setState(prev => ({
+        ...prev,
+        monitoring: {
+          ...prev.monitoring,
+          history: latestHistory,
+          weightHistory: updatedWeightHistory,
+          biochemHistory: updatedBiochemHistory
+        }
+      }));
+
+      // Build payload for saving using the newly updated histories
+      const { id, ...cleanState } = state;
+      cleanState.monitoring = {
+        ...cleanState.monitoring,
+        history: latestHistory,
+        weightHistory: updatedWeightHistory,
+        biochemHistory: updatedBiochemHistory
+      };
+      
+      const payload = {
+        userId: user.uid,
+        consultDate: state.consultDate,
+        clientName: state.clientHx.name || '未命名個案',
+        data: cleanState,
+        updatedAt: Timestamp.now()
+      };
+
+      console.log('Target ID:', id);
+      console.log('Payload:', payload);
+
+      if (id) {
+        // Update existing
+        const docRef = doc(db, 'consultations', id);
+        await updateDoc(docRef, payload);
+        alert('紀錄已更新成功。');
+      } else {
+        // Create new
+        const docRef = await addDoc(collection(db, 'consultations'), {
+          ...payload,
+          createdAt: Timestamp.now()
+        });
+        setState(prev => ({ ...prev, id: docRef.id }));
+        alert('新紀錄已建立並儲存。');
+      }
+
+      // Sync patient data to the dashboard automatically
+      const patientName = state.clientHx.name || '未命名個案';
+      let matchingPatient = null;
+      if (originalPatientName) {
+        matchingPatient = patients.find(p => p.name === originalPatientName);
+      }
+      if (!matchingPatient) {
+        matchingPatient = patients.find(p => p.name === patientName);
+      }
+      
+      const patientPayload = {
+        name: patientName,
+        birthday: state.clientHx.birthday || '',
+        gender: state.clientHx.gender || '男',
+        consultDate: state.consultDate,
+        updatedAt: Timestamp.now()
+      };
+
+      if (matchingPatient && matchingPatient.id) {
+        // Update existing patient record
+        await updateDoc(doc(db, 'patients', matchingPatient.id), patientPayload);
+        
+        // If the name actually changed, update all other consultations of this patient to the new name
+        if (originalPatientName && originalPatientName !== patientName) {
+          try {
+            const consultsQuery = query(
+              collection(db, 'consultations'),
+              where('userId', '==', user.uid),
+              where('clientName', '==', originalPatientName)
+            );
+            const querySnapshot = await getDocs(consultsQuery);
+            const batchPromises = querySnapshot.docs.map(async (docSnap) => {
+              const oldData = docSnap.data();
+              // Skip the current one we already updated
+              if (docSnap.id === id) return;
+              
+              const updatedData = { ...(oldData.data || {}) };
+              if (updatedData.clientHx) {
+                updatedData.clientHx = { ...updatedData.clientHx, name: patientName };
+              }
+              await updateDoc(doc(db, 'consultations', docSnap.id), {
+                clientName: patientName,
+                data: updatedData,
+                updatedAt: Timestamp.now()
+              });
+            });
+            await Promise.all(batchPromises);
+          } catch (err) {
+            console.error('Error updating matching consultations:', err);
+          }
+        }
+      } else {
+        // Create new patient record if not exists
+        await addDoc(collection(db, 'patients'), {
+          ...patientPayload,
+          userId: user.uid,
+          checklist: {
+            consultation: true,
+            personalizedMsg: false,
+            fu1: false,
+            fu2: false,
+            fu3: false,
+            fu4: false
+          },
+          createdAt: Timestamp.now()
+        });
+      }
+
+      setOriginalPatientName(patientName);
+    } catch (error: any) {
+      console.error('Save error details:', error);
+      const errorCode = error.code || 'unknown';
+      const errorMessage = error.message || '未知錯誤';
+      alert(`儲存失敗: ${errorCode}\n${errorMessage}\n\n提醒：如果紀錄包含大量照片，請嘗試移除部分照片後再試。`);
+    } finally {
+      console.groupEnd();
+      setIsSaving(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    setLoginError(null);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      const errCode = error?.code || 'unknown-error';
+      const errMsg = error?.message || '';
+      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+        console.error('Login error:', error);
+        setLoginError({
+          message: '您已取消或關閉登入視窗。請點擊按鈕再次嘗試。',
+          isWarning: true
+        });
+      } else {
+        let userFriendlyMessage = `登入失敗 (${errCode}): `;
+        if (errCode === 'auth/popup-blocked') {
+          userFriendlyMessage += '彈出式登入視窗已被瀏覽器封鎖。請點擊允許瀏覽器的彈出式視窗，或點擊下方「在新分頁開啟系統」登入。';
+        } else if (errCode === 'auth/iframe-start-fail' || errCode === 'auth/web-storage-unsupported' || errMsg.includes('iframe') || errMsg.includes('storage')) {
+          userFriendlyMessage += '由於瀏覽器安全政策，預覽框架 (IFrame) 不支援 Google 登入。請點擊下方「在新分頁開啟系統」按鈕登入。';
+        } else {
+          userFriendlyMessage += `${errMsg || '請確認您的網路連線，或使用下方「在新分頁開啟系統」按鈕登入。'}`;
+        }
+        setLoginError({
+          message: userFriendlyMessage,
+          isWarning: false
+        });
+      }
+    }
+  };
+
+  const handleLoginRedirect = async () => {
+    setLoginError(null);
+    try {
+      await signInWithRedirect(auth, googleProvider);
+    } catch (error: any) {
+      console.warn('Redirect login error details:', error);
+      const errCode = error?.code || 'unknown-error';
+      const errMsg = error?.message || '';
+      let userFriendlyMessage = `轉址登入失敗 (${errCode}): `;
+      if (errCode === 'auth/iframe-start-fail' || errCode === 'auth/web-storage-unsupported' || errMsg.includes('iframe') || errMsg.includes('storage')) {
+        userFriendlyMessage += '預覽框架 (IFrame) 限制，請點擊下方「在新分頁開啟系統」按鈕。';
+      } else {
+        userFriendlyMessage += `${errMsg || '請點擊下方「在新分頁開啟系統」按鈕登入。'}`;
+      }
+      setLoginError({
+        message: userFriendlyMessage,
+        isWarning: false
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  const executeLogout = async () => {
+    setShowLogoutModal(false);
+    try {
+      await signOut(auth);
+      setIsEntrancePwdVerified(false);
+      sessionStorage.removeItem('ncp_entrance_pwd_verified');
+    } catch (error) {
+      console.warn('Logout error details:', error);
+    }
+  };
+
+  const loadRecord = (record: any) => {
+    const clientHxMerged = { 
+      ...INITIAL_STATE.clientHx, 
+      ...(record.data.clientHx || {}),
+      habits: {
+        ...INITIAL_STATE.clientHx.habits,
+        ...(record.data.clientHx?.habits || {})
+      }
+    };
+    if (!clientHxMerged.exerciseList || clientHxMerged.exerciseList.length === 0) {
+      clientHxMerged.exerciseList = [
+        {
+          frequency: clientHxMerged.exercise?.frequency || '',
+          name: clientHxMerged.exercise?.name || '',
+          type: clientHxMerged.exercise?.type || ''
+        }
+      ];
+    }
+    // Deep merge with INITIAL_STATE to ensure compatibility with new fields
+    setState({
+      ...INITIAL_STATE,
+      ...record.data,
+      id: record.id,
+      // Ensure nested objects are handled
+      clientHx: clientHxMerged,
+      anthropometry: { ...INITIAL_STATE.anthropometry, ...(record.data.anthropometry || {}) },
+      biochemistry: { ...INITIAL_STATE.biochemistry, ...(record.data.biochemistry || {}) },
+      clinical: { ...INITIAL_STATE.clinical, ...(record.data.clinical || {}) },
+      diet: { ...INITIAL_STATE.diet, ...(record.data.diet || {}) },
+      intervention: { ...INITIAL_STATE.intervention, ...(record.data.intervention || {}) },
+      monitoring: { ...INITIAL_STATE.monitoring, ...(record.data.monitoring || {}) }
+    });
+    setOriginalPatientName(record.clientName || record.data?.clientHx?.name || null);
+    alert(`已載入 ${record.clientName} 的紀錄。`);
+  };
+
+  const deletePatient = (e: React.MouseEvent, p: Patient) => {
+    e.stopPropagation();
+    setPatientToDelete(p);
+  };
+
+  const confirmDeletePatient = async () => {
+    if (!patientToDelete?.id) return;
+    try {
+      await deleteDoc(doc(db, 'patients', patientToDelete.id));
+      setPatientToDelete(null);
+    } catch (error) {
+      console.error('Firestore delete error:', error);
+      alert(`刪除失敗：${error instanceof Error ? error.message : '未知錯誤'}`);
+    }
+  };
+
+  const setSelection = (id: string, value: any) => {
+    setState({
+      ...state,
+      guidelineSelections: {
+        ...state.guidelineSelections,
+        [id]: value
+      }
+    });
+  };
+
+  const updateExerciseItem = (idx: number, field: 'frequency' | 'name' | 'type', value: string) => {
+    const newList = [...(state.clientHx.exerciseList || [{ frequency: '', name: '', type: '' }])];
+    if (!newList[idx]) {
+      newList[idx] = { frequency: '', name: '', type: '' };
+    }
+    newList[idx] = { ...newList[idx], [field]: value };
+    
+    // Keep first item synced with legacy model
+    const firstItem = newList[0] || { frequency: '', name: '', type: '' };
+    setState(prev => ({
+      ...prev,
+      clientHx: {
+        ...prev.clientHx,
+        exerciseList: newList,
+        exercise: {
+          ...prev.clientHx.exercise,
+          frequency: firstItem.frequency,
+          name: firstItem.name,
+          type: firstItem.type
+        }
+      }
+    }));
+  };
+
+  const addExerciseItem = () => {
+    const newList = [...(state.clientHx.exerciseList || [{ frequency: '', name: '', type: '' }]), { frequency: '', name: '', type: '' }];
+    setState(prev => ({
+      ...prev,
+      clientHx: {
+        ...prev.clientHx,
+        exerciseList: newList
+      }
+    }));
+  };
+
+  const removeExerciseItem = (idx: number) => {
+    const list = state.clientHx.exerciseList || [{ frequency: '', name: '', type: '' }];
+    const newList = list.filter((_, i) => i !== idx);
+    const finalList = newList.length === 0 ? [{ frequency: '', name: '', type: '' }] : newList;
+    const firstItem = finalList[0] || { frequency: '', name: '', type: '' };
+    setState(prev => ({
+      ...prev,
+      clientHx: {
+        ...prev.clientHx,
+        exerciseList: finalList,
+        exercise: {
+          ...prev.clientHx.exercise,
+          frequency: firstItem.frequency,
+          name: firstItem.name,
+          type: firstItem.type
+        }
+      }
+    }));
+  };
+
+  const renderGuidelineSpecifics = () => {
+    return null;
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
+  const [newPatientData, setNewPatientData] = useState({ name: '', birthday: '', gender: '女' as '男' | '女' });
+  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
+
+  // Removed inner Dashboard definition
+
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [copySuccessMsg, setCopySuccessMsg] = useState<string | null>(null);
+
+  const applyDefaultWeightNotes = () => {
+    const defaultNotes = `* 減重以穩定、可持續為原則，不建議極端節食或跳過正餐。
+* 體重會受到水分、排便、飲食及生理週期影響，短期波動不代表減重失敗。
+* 若出現持續明顯飢餓、頭暈、虛弱或飲食難以維持，請與營養師討論調整。
+* 若有糖尿病、腎臟疾病、心血管疾病或正在使用藥物，飲食與減重策略應依個人疾病及治療狀況調整。
+* 不用一次做到全部，先完成本週設定的 1–2 個目標。`;
+    setState(prev => ({ ...prev, reminderNotes: defaultNotes }));
+  };
+
+  const handleCopyWeightCard = () => {
+    const s = state;
+    const g = s.guidelineSelections || {};
+    const name = s.clientHx.name || '個案';
+    const date = s.consultDate || new Date().toISOString().split('T')[0];
+    const weight = s.anthropometry.weight || '--';
+    const targetWeight = g['weight_goal_target_kg'] || g['weight_track_target'] || '______';
+    const waterGoal = g['weight_goal_water'] || (s.anthropometry.weight ? `${Math.round(parseFloat(s.anthropometry.weight) * 30)}~${Math.round(parseFloat(s.anthropometry.weight) * 35)}` : '2000');
+
+    // 營養方針重點
+    const carbsPoints: string[] = [];
+    if (g['weight_guide_fixed_carbs']) carbsPoints.push('每餐固定主食份量，避免忽多忽少');
+    if (g['weight_guide_less_sugar']) carbsPoints.push('減少精製糖及精製澱粉');
+    if (g['weight_guide_whole_grain']) carbsPoints.push('主食優先選擇：糙米、五穀飯、全穀、地瓜');
+    if (g['weight_guide_less_bakery']) carbsPoints.push('減少：甜麵包、蛋糕、餅乾、精緻麵食');
+    if (g['weight_guide_no_thickening']) carbsPoints.push('避免額外勾芡、糖醋、濃稠醬汁');
+
+    const fiberPoints: string[] = [];
+    if (g['weight_guide_veg_half_bowl']) fiberPoints.push('每餐至少半碗蔬菜');
+    if (g['weight_guide_veg_colors']) fiberPoints.push('優先選擇多種類、不同顏色蔬菜');
+    if (g['weight_guide_eat_order']) fiberPoints.push('建議進食順序：先吃菜 → 蛋白質 → 最後吃主食');
+    if (g['weight_guide_fruit_mod']) fiberPoints.push('水果適量，不以果汁取代水果');
+
+    const proPoints: string[] = [];
+    if (g['weight_guide_protein_match']) proPoints.push('每餐搭配一份蛋白質');
+    if (g['weight_guide_protein_priority']) proPoints.push('優先選擇：魚、雞肉、蛋、豆腐、豆製品');
+    if (g['weight_guide_no_only_starch']) proPoints.push('避免只吃澱粉類（麵包+飲料、稀飯+醬菜、麵+飲料）');
+    if (g['weight_guide_keep_muscle']) proPoints.push('減重期間注意蛋白質攝取，以維持肌肉量');
+
+    const drinkPoints: string[] = [];
+    if (g['weight_guide_no_sugar_drinks']) drinkPoints.push('完全避免含糖飲料（手搖飲、汽水、果汁、甜咖啡、運動飲料）');
+    if (g['weight_guide_tea_water']) drinkPoints.push('飲料改成：水／無糖茶／無糖咖啡');
+
+    // 追蹤指標
+    const dietLog = g['weight_track_diet_log'] ? `[${g['weight_track_diet_log']}]` : '未勾選';
+    const dietImprove = g['weight_track_diet_improve'] || '______';
+    const fullness = g['weight_track_fullness'] || '未填寫';
+    const cravings = g['weight_track_cravings'] || '未填寫';
+    const sugarDrinksFreq = g['weight_track_sugar_drinks_freq'] ? `${g['weight_track_sugar_drinks_freq']} 次/週` : '______ 次/週';
+
+    // 本次目標 (這週只做 1-2 個改變)
+    const goals: string[] = [];
+    if (g['weight_plan_veg']) goals.push('☑ 每餐至少半碗蔬菜');
+    if (g['weight_plan_fixed_carbs']) goals.push('☑ 每餐固定主食份量');
+    if (g['weight_plan_add_protein']) goals.push('☑ 每餐增加一份蛋白質');
+    if (g['weight_plan_sugar_free']) goals.push('☑ 含糖飲料改為無糖');
+    if (g['weight_plan_walk']) goals.push('☑ 飯後走路 10–15 分鐘');
+    if (g['weight_plan_log_meals']) goals.push('☑ 記錄 1–2 餐飲食');
+    if (g['weight_plan_other']) goals.push(`☑ ${g['weight_plan_other']}`);
+
+    const text = `📋 【減重個人化追蹤卡】
+個案姓名：${name}
+諮詢日期：${date}
+營養師：${s.dietitian || '營養師'}
+
+🎯 營養控制目標
+• 熱量目標：${s.diet.targetKcal ? `${s.diet.targetKcal} kcal/天` : '依個別評估'}
+• 建議飲水：${waterGoal} mL/天
+• 體重基準：本次 ${weight} kg ➔ 下次目標：${targetWeight} kg
+
+🥗 減重營養方針重點
+${carbsPoints.length > 0 ? `① 醣類：\n  • ${carbsPoints.join('\n  • ')}\n` : '① 醣類：每餐固定主食份量，減少精製糖澱粉，優先選未精緻全穀，避免勾芡糖醋\n'}${fiberPoints.length > 0 ? `② 纖維：\n  • ${fiberPoints.join('\n  • ')}\n` : '② 纖維：每餐至少半碗蔬菜，先吃菜→蛋白質→最後吃主食，水果適量\n'}${proPoints.length > 0 ? `③ 蛋白質：\n  • ${proPoints.join('\n  • ')}\n` : '③ 蛋白質：每餐搭配一份蛋白質（魚雞蛋豆腐），避免單吃澱粉，維持肌肉量\n'}${drinkPoints.length > 0 ? `④ 含糖飲料：\n  • ${drinkPoints.join('\n  • ')}\n` : '④ 含糖飲料：以完全避免為目標，改喝水／無糖茶／無糖咖啡\n'}
+📊 追蹤指標（飲食與身體反應）
+• 體重追蹤：本次 ${weight} kg ➔ 目標 ${targetWeight} kg
+• 每日飲食紀錄：${dietLog}（有／部分／無）
+• 本週最需改善：${dietImprove}
+• 飲食行為：飯後易太飽 [${fullness}] ｜ 容易嘴饞 [${cravings}] ｜ 含糖飲料 [${sugarDrinksFreq}]
+${g['weight_track_ppg_enabled'] ? `• 飯後血糖：飯後2小時 ${g['weight_track_ppg_val'] || '___'} mg/dL (明顯升高: ${g['weight_track_ppg_high'] || '無'})\n  (觀察重點：挑選 1–2 餐記錄「吃了什麼 → 吃多少 → 飯後血糖／身體反應」)\n` : ''}
+📌 本次營養計畫（這週只做 1–2 個改變）
+${goals.length > 0 ? goals.join('\n') : '□ 每餐至少半碗蔬菜\n□ 每餐固定主食份量\n□ 每餐增加一份蛋白質\n□ 含糖飲料改為無糖'}
+
+📅 下次追蹤日期：${g['weight_plan_next_date'] || s.monitoring.nextDate || '____________'}
+下次主要討論：
+① ${g['weight_plan_discuss_1'] || '____________________'}
+② ${g['weight_plan_discuss_2'] || '____________________'}
+
+💡 備註與注意事項：
+${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節食。短期波動不代表減重失敗，先完成本週設定的 1–2 個目標！'}`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopySuccessMsg('已複製個人化追蹤卡！可直接貼入 LINE / Notion');
+      setTimeout(() => setCopySuccessMsg(null), 3000);
+    }).catch(() => {
+      alert('複製失敗，請手動複製。');
+    });
+  };
+  
+  const handleDownloadWord = () => {
+    generateReminderWordDoc(state);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setState({
+        ...state,
+        educationImages: [...state.educationImages, base64String]
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const dietTotals = useMemo(() => {
+    return state.diet.logs.reduce((acc, item) => {
+      const qty = item.qty || 0;
+      const na = typeof item.na === 'number' ? item.na : parseFloat(item.na || '0') || 0;
+      const k = typeof item.k === 'number' ? item.k : parseFloat(item.k || '0') || 0;
+      const p = typeof item.p === 'number' ? item.p : parseFloat(item.p || '0') || 0;
+      const fiber = typeof item.fiber === 'number' ? item.fiber : parseFloat(item.fiber as string || '0') || 0;
+      const saturatedFat = typeof item.saturatedFat === 'number' ? item.saturatedFat : parseFloat(item.saturatedFat as string || '0') || 0;
+      const transFat = typeof item.transFat === 'number' ? item.transFat : parseFloat(item.transFat as string || '0') || 0;
+      const cholesterol = typeof item.cholesterol === 'number' ? item.cholesterol : parseFloat(item.cholesterol as string || '0') || 0;
+      
+      const newCategories = { ...acc.categories };
+      if (item.category) {
+        newCategories[item.category] = (newCategories[item.category] || 0) + qty;
+      }
+
+      return {
+        carbs: acc.carbs + (item.carbs * qty),
+        protein: acc.protein + (item.protein * qty),
+        fat: acc.fat + (item.fat * qty),
+        kcal: acc.kcal + ((item.carbs * 4 + item.protein * 4 + item.fat * 9) * qty),
+        fiber: acc.fiber + (fiber * qty),
+        saturatedFat: acc.saturatedFat + (saturatedFat * qty),
+        transFat: acc.transFat + (transFat * qty),
+        cholesterol: acc.cholesterol + (cholesterol * qty),
+        na: acc.na + (na * qty),
+        k: acc.k + (k * qty),
+        p: acc.p + (p * qty),
+        categories: newCategories
+      };
+    }, { carbs: 0, protein: 0, fat: 0, kcal: 0, fiber: 0, saturatedFat: 0, transFat: 0, cholesterol: 0, na: 0, k: 0, p: 0, categories: {} as Record<string, number> });
+  }, [state.diet.logs]);
+
+  const filteredFood = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return FOOD_DATABASE.filter(f => 
+      f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      f.category.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery]);
+
+
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="text-slate-500 font-medium">系統載入中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 1: System entrance password verification (0808)
+  if (!isEntrancePwdVerified) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 selection:bg-blue-100">
+        <div className="max-w-md w-full">
+          <div className="text-center mb-10">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-6 transform -rotate-6">
+              <Stethoscope className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">NCP 助理紀錄系統</h1>
+            <p className="text-slate-500 text-sm">專業營養師的數位諮詢助理</p>
+          </div>
+
+          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-slate-200">
+            <form onSubmit={handleVerifyEntrancePassword} className="space-y-6">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-800 mb-1">系統安全驗證</h2>
+                <p className="text-xs text-slate-500">請先輸入系統存取密碼以進行 Google 帳號登入</p>
+              </div>
+
+              {entrancePwdError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3.5 rounded-2xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span className="font-medium">{entrancePwdError}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700">系統密碼</label>
+                <input
+                  type="password"
+                  value={entrancePassword}
+                  onChange={(e) => {
+                    setEntrancePassword(e.target.value);
+                    setEntrancePwdError('');
+                  }}
+                  placeholder="請輸入密碼"
+                  className="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-slate-800 text-sm font-mono tracking-widest transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-md hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-sm"
+              >
+                <Key className="w-4 h-4" />
+                驗證密碼並前往登入
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2: Google Account Authentication
+  if (!user) {
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 selection:bg-blue-100">
+        <div className="max-w-md w-full">
+          <div className="text-center mb-10">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-6 transform -rotate-6">
+              <Stethoscope className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">NCP 助理紀錄系統</h1>
+            <p className="text-slate-500 text-sm">專業營養師的數位諮詢助理</p>
+          </div>
+          
+          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-slate-200">
+            <div className="space-y-6">
+              <div className="text-center">
+                <h2 className="text-xl font-bold text-slate-800 mb-1">歡迎回來</h2>
+                <p className="text-sm text-slate-500">請登入您的帳號以開始進行諮詢紀錄</p>
+              </div>
+
+              {isIframe && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 space-y-2">
+                  <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                    <span className="text-sm">⚠️</span> 偵測到預覽框架 (IFrame) 限制
+                  </p>
+                  <p className="leading-relaxed text-[11px]">
+                    由於瀏覽器安全機制與第三方 Cookie 限制，在 AI Studio 預覽視窗內直接點擊 Google 登入會被阻擋。
+                  </p>
+                  <p className="font-medium text-amber-900 leading-relaxed text-[11px]">
+                    請點擊下方按鈕，在新分頁中開啟系統即可正常登入並使用完整功能：
+                  </p>
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 px-4 rounded-xl transition-all shadow-sm active:scale-[0.98] text-center"
+                  >
+                    在新分頁開啟系統 (解決登入問題)
+                  </a>
+                </div>
+              )}
+
+              {loginError && (
+                loginError.isWarning ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 relative">
+                    <button 
+                      onClick={() => setLoginError(null)}
+                      className="absolute right-3 top-3 text-amber-500 hover:text-amber-700 font-bold text-sm cursor-pointer"
+                    >
+                      ×
+                    </button>
+                    <p className="font-bold flex items-center gap-1.5 text-amber-900 mb-1">
+                      <span>⚠️</span> 登入已取消
+                    </p>
+                    <p className="leading-relaxed text-[11px]">
+                      {loginError.message}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 space-y-2 relative">
+                    <button 
+                      onClick={() => setLoginError(null)}
+                      className="absolute right-3 top-3 text-rose-500 hover:text-rose-700 font-bold text-sm cursor-pointer"
+                    >
+                      ×
+                    </button>
+                    <p className="font-bold flex items-center gap-1.5 text-rose-900">
+                      <span>❌</span> 登入失敗
+                    </p>
+                    <p className="leading-relaxed text-[11px] font-mono break-all bg-white p-2 rounded border border-rose-100">
+                      {loginError.message}
+                    </p>
+                    <p className="leading-relaxed text-[11px]">
+                      建議您點擊下方按鈕在新分頁開啟系統以解決此問題：
+                  </p>
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 px-4 rounded-xl transition-all shadow-sm active:scale-[0.98] text-center"
+                  >
+                    在新分頁開啟系統 (重試登入)
+                  </a>
+                </div>
+                )
+              )}
+              
+              <div className="space-y-4">
+                <button 
+                  onClick={handleLogin}
+                  className="w-full flex items-center justify-center gap-4 bg-white hover:bg-slate-50 text-slate-700 py-3 px-6 rounded-2xl font-bold border-2 border-slate-100 transition-all active:scale-[0.98] shadow-sm cursor-pointer"
+                >
+                  <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5 pointer-events-none" referrerPolicy="no-referrer" />
+                  使用 Google 帳號登入
+                </button>
+
+                {!isIframe && (
+                  <button 
+                    type="button"
+                    onClick={handleLoginRedirect}
+                    className="w-full text-center text-slate-400 hover:text-slate-600 transition-colors text-xs hover:underline cursor-pointer py-1"
+                  >
+                    嘗試使用轉址 (Redirect) 方式登入
+                  </button>
+                )}
+
+                <div className="pt-2 border-t border-slate-100 flex justify-center">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setIsEntrancePwdVerified(false);
+                      sessionStorage.removeItem('ncp_entrance_pwd_verified');
+                    }}
+                    className="text-slate-400 hover:text-slate-600 transition-colors text-xs flex items-center gap-1 cursor-pointer py-1"
+                  >
+                    <Lock className="w-3 h-3" />
+                    返回系統密碼驗證
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-100 text-slate-800">
+      {/* Side Navigation */}
+      <aside className="fixed left-0 top-0 bottom-0 w-20 bg-white border-r border-slate-200 flex flex-col items-center py-8 gap-10 z-40">
+        <div className="w-12 h-12 bg-blue-600 rounded-xl shadow-lg flex items-center justify-center transform hover:rotate-12 transition-transform cursor-pointer" onClick={() => setActivePage('dashboard')}>
+          <Stethoscope className="w-6 h-6 text-white" />
+        </div>
+        <nav className="flex-1 flex flex-col gap-6">
+          <button 
+            onClick={() => setActivePage('dashboard')}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${activePage === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}
+          >
+            <LayoutDashboard className="w-6 h-6" />
+          </button>
+          <button 
+            onClick={() => setActivePage('consultation')}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${activePage === 'consultation' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}
+          >
+            <ClipboardList className="w-6 h-6" />
+          </button>
+        </nav>
+        <div className="mt-auto space-y-4 text-center">
+          <button onClick={handleLogout} className="w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all">
+            <LogOut className="w-6 h-6" />
+          </button>
+        </div>
+      </aside>
+
+      <main className="pl-24 pt-8 pb-16 px-8 max-w-7xl mx-auto">
+        {isPatientModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8">
+              <h2 className="text-xl font-bold mb-6 italic underline">新增病人</h2>
+              <div className="space-y-4">
+                <input type="text" placeholder="姓名" className="w-full px-4 py-3 rounded-xl border" value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} />
+                <input type="date" className="w-full px-4 py-3 rounded-xl border" value={newPatientData.birthday} onChange={e => setNewPatientData({...newPatientData, birthday: e.target.value})} />
+                <div className="flex gap-2">
+                  <button onClick={() => setNewPatientData({...newPatientData, gender: '男'})} className={`flex-1 py-3 rounded-xl border ${newPatientData.gender === '男' ? 'bg-blue-50 border-blue-600 text-blue-600' : ''}`}>男</button>
+                  <button onClick={() => setNewPatientData({...newPatientData, gender: '女'})} className={`flex-1 py-3 rounded-xl border ${newPatientData.gender === '女' ? 'bg-blue-50 border-blue-600 text-blue-600' : ''}`}>女</button>
+                </div>
+                <div className="flex gap-2 pt-4">
+                  <button onClick={() => setIsPatientModalOpen(false)} className="flex-1 py-3 bg-slate-100 rounded-xl">取消</button>
+                  <button onClick={() => { handleAddPatient(newPatientData.name, newPatientData.birthday, newPatientData.gender); setIsPatientModalOpen(false); }} className="flex-1 py-3 bg-blue-600 text-white rounded-xl">確認</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedFollowupPatient && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8 flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-start border-b border-slate-100 pb-4 mb-4">
+                <div>
+                  <h2 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2">
+                    <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                      <Calendar className="w-5 h-5" />
+                    </span>
+                    自訂追蹤行程 - {selectedFollowupPatient.name}
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    您可以自由增減追蹤的次數、自訂名稱以及追蹤的特定日期。
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setSelectedFollowupPatient(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Consultation / Base date settings */}
+              <div className="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-4">
+                <span className="text-sm font-bold text-slate-700">首診日期 (起算日期)：</span>
+                <input 
+                  type="date"
+                  value={selectedFollowupPatient.consultDate || ''}
+                  onChange={async (e) => {
+                    const updatedPatient = { ...selectedFollowupPatient, consultDate: e.target.value };
+                    setSelectedFollowupPatient(updatedPatient);
+                  }}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white"
+                />
+              </div>
+
+              {/* Followup Rows */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-3 py-2">
+                <div className="flex justify-between items-center pb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">自訂追蹤排程：</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextNum = modalFollowups.length + 1;
+                      // Calculate default date offset
+                      let baseDate = new Date();
+                      if (selectedFollowupPatient.consultDate) {
+                        try { baseDate = parseISO(selectedFollowupPatient.consultDate); } catch (e) {}
+                      }
+                      const defaultOffset = nextNum * 14;
+                      const nextDateStr = format(addDays(baseDate, defaultOffset), 'yyyy-MM-dd');
+                      setModalFollowups([
+                        ...modalFollowups,
+                        {
+                          id: Date.now().toString() + '-custom-fu',
+                          label: `${nextNum}nd f/u`,
+                          date: nextDateStr,
+                          completed: false
+                        }
+                      ]);
+                    }}
+                    className="px-2.5 py-1 text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 增加追蹤次數
+                  </button>
+                </div>
+
+                {modalFollowups.length === 0 ? (
+                  <div className="text-center py-8 border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-slate-400 text-xs">
+                    目前無任何自訂追蹤排程。
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {modalFollowups.map((f, idx) => (
+                      <div key={f.id || idx} className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        {/* Completed toggle checkbox */}
+                        <input 
+                          type="checkbox"
+                          checked={f.completed || false}
+                          onChange={(e) => {
+                            const updated = [...modalFollowups];
+                            updated[idx] = { ...updated[idx], completed: e.target.checked };
+                            setModalFollowups(updated);
+                          }}
+                          className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        />
+
+                        {/* Label input */}
+                        <input 
+                          type="text"
+                          value={f.label || ''}
+                          onChange={(e) => {
+                            const updated = [...modalFollowups];
+                            updated[idx] = { ...updated[idx], label: e.target.value };
+                            setModalFollowups(updated);
+                          }}
+                          placeholder="e.g. 1st f/u 或 抽血檢查"
+                          className="flex-1 min-w-[100px] px-2.5 py-1 text-sm bg-white border border-slate-200 rounded-lg"
+                        />
+
+                        {/* Date input */}
+                        <input 
+                          type="date"
+                          value={f.date || ''}
+                          onChange={(e) => {
+                            const updated = [...modalFollowups];
+                            updated[idx] = { ...updated[idx], date: e.target.value };
+                            setModalFollowups(updated);
+                          }}
+                          className="px-2 py-1 text-sm bg-white border border-slate-200 rounded-lg w-[125px]"
+                        />
+
+                        {/* Delete row */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalFollowups(modalFollowups.filter((_, i) => i !== idx));
+                          }}
+                          className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
+                <button 
+                  onClick={() => setSelectedFollowupPatient(null)} 
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={async () => {
+                    await handleUpdatePatientFollowups(selectedFollowupPatient.id!, modalFollowups, {
+                      consultDate: selectedFollowupPatient.consultDate || ''
+                    });
+                    setSelectedFollowupPatient(null);
+                    alert(`已成功儲存 ${selectedFollowupPatient.name} 的自訂追蹤排程！`);
+                  }} 
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer"
+                >
+                  儲存自訂設定
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editingCell && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8 flex flex-col max-h-[90vh]">
+              {/* Modal header */}
+              <div className="flex justify-between items-start border-b border-slate-100 pb-4 mb-4">
+                <div>
+                  <h2 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2">
+                    <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                      <Utensils className="w-5 h-5" />
+                    </span>
+                    修改飲食份量
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    食物類別：<span className="font-bold text-slate-700">{editingCell.category}</span> &nbsp;|&nbsp;
+                    餐次：<span className="font-bold text-slate-700">{editingCell.meal}</span>
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setEditingCell(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all font-bold text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Items List (using standard scrollbar) */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-4 py-2">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">已登錄食物及其份數：</span>
+                
+                {editingCellItems.length === 0 ? (
+                  <div className="text-center py-6 border-2 border-dashed border-slate-100 rounded-2xl bg-slate-50 text-slate-400 text-xs">
+                    目前此類別餐次內沒有任何登錄的食物
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {editingCellItems.map((item, idx) => (
+                      <div key={item.id || idx} className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200/60 rounded-xl hover:bg-slate-100/50 transition-all">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="text-sm font-semibold text-slate-800 truncate" title={item.name}>
+                            {item.name}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            {item.category}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          {/* Portion Edit Stepper */}
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setEditingCellItems(prev => prev.map(p => 
+                                  p.id === item.id ? { ...p, qty: Math.max(0, p.qty - 0.5) } : p
+                                ).filter(p => p.qty > 0)); 
+                              }}
+                              className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded transition-all font-bold text-xs"
+                            >
+                              -
+                            </button>
+                            <input 
+                              type="number" 
+                              min="0" 
+                              step="0.1" 
+                              value={item.qty} 
+                              onChange={e => {
+                                const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                setEditingCellItems(prev => prev.map(p => p.id === item.id ? { ...p, qty: val } : p));
+                              }}
+                              className="w-12 h-7 text-center bg-white text-xs font-bold text-slate-800 focus:outline-none"
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setEditingCellItems(prev => prev.map(p => 
+                                  p.id === item.id ? { ...p, qty: p.qty + 0.5 } : p
+                                ));
+                              }}
+                              className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded transition-all font-bold text-xs"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* Delete from cell button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCellItems(prev => prev.filter(p => p.id !== item.id));
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all duration-150"
+                            title="刪除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Additional quick append section in modal */}
+                <div className="border-t border-slate-100 pt-4 mt-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2.5">在此類別快速追加新食物：</span>
+                  <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100 space-y-3">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <select 
+                        value={cellNewFoodName}
+                        onChange={e => setCellNewFoodName(e.target.value)}
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="">選擇要追加的食物...</option>
+                        {FOOD_DATABASE.filter(f => getRowCategory(f.category) === editingCell.category).map(f => (
+                          <option key={f.name} value={f.name}>{f.name}</option>
+                        ))}
+                      </select>
+
+                      {/* Quantity selector for new appended item */}
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-0.5 shadow-sm max-w-[130px] self-end sm:self-auto">
+                        <button 
+                          type="button"
+                          onClick={() => setCellNewFoodQty(Math.max(0.5, cellNewFoodQty - 0.5))}
+                          className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg transition-all font-bold text-xs"
+                        >
+                          -
+                        </button>
+                        <input 
+                          type="number" 
+                          min="0.1" 
+                          step="0.1" 
+                          value={cellNewFoodQty} 
+                          onChange={e => setCellNewFoodQty(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                          className="w-10 h-7 text-center bg-white text-xs font-bold text-slate-800 focus:outline-none"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => setCellNewFoodQty(cellNewFoodQty + 0.5)}
+                          className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg transition-all font-bold text-xs"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex gap-3 border-t border-slate-100 pt-4 mt-4">
+                <button 
+                  type="button"
+                  onClick={() => setEditingCell(null)} 
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs sm:text-sm transition-all shadow-sm"
+                >
+                  取消
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleSaveCellPortions} 
+                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs sm:text-sm transition-all shadow-md shadow-blue-200"
+                >
+                  儲存修改
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {patientToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8">
+              <h2 className="text-xl font-bold mb-4 text-red-600 flex items-center gap-2">
+                <Trash2 className="w-6 h-6" />
+                刪除個案
+              </h2>
+              <p className="text-slate-600 mb-8">
+                確定要刪除個案「<span className="font-bold text-slate-900">{patientToDelete.name}</span>」嗎？<br/>
+                這將會從總覽清單中移除個案，但不會刪除該個案過去的諮詢紀錄。
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setPatientToDelete(null)} 
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={confirmDeletePatient} 
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-colors shadow-sm"
+                >
+                  確認刪除
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {activePage === 'dashboard' ? (
+          <Dashboard 
+            patients={patients}
+            history={history}
+            loadRecord={loadRecord}
+            setState={setState}
+            setActivePage={setActivePage}
+            setActiveTab={setActiveTab}
+            deletePatient={deletePatient}
+            handlePatientAction={handlePatientAction}
+            calculateAge={calculateAge}
+            currentMonth={currentMonth}
+            setCurrentMonth={setCurrentMonth}
+            INITIAL_STATE={INITIAL_STATE}
+            selectedFollowupPatient={selectedFollowupPatient}
+            setSelectedFollowupPatient={setSelectedFollowupPatient}
+            overviewNotes={overviewNotes}
+            setOverviewNotes={setOverviewNotes}
+            isOverviewNotesExpanded={isOverviewNotesExpanded}
+            setIsOverviewNotesExpanded={setIsOverviewNotesExpanded}
+            expandedPatientNotes={expandedPatientNotes}
+            setExpandedPatientNotes={setExpandedPatientNotes}
+            handleSaveOverviewNotes={handleSaveOverviewNotes}
+            handleUpdatePatientNotes={handleUpdatePatientNotes}
+            handleUpdatePatientFollowups={handleUpdatePatientFollowups}
+            setOriginalPatientName={setOriginalPatientName}
+          />
+        ) : (
+          <div className="space-y-6">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">諮詢紀錄</h1>
+                <p className="text-sm text-slate-500 uppercase tracking-widest text-[10px]">Standardized NCP Workflow</p>
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => generateWordDoc(state)}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all font-bold text-xs uppercase tracking-widest"
+                >
+                  <FileDown className="w-4 h-4" />
+                  WORD
+                </button>
+                <button 
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-bold text-xs uppercase tracking-widest"
+                >
+                  <Save className="w-4 h-4" />
+                  SAVE
+                </button>
+              </div>
+            </header>
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
+              <nav className="bg-slate-50/50 border-b border-slate-200 p-2 flex gap-1 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'assessment', label: '營養評估', icon: User },
+                  { id: 'diagnosis', label: '營養診斷', icon: Stethoscope },
+                  { id: 'intervention', label: '營養介入', icon: Utensils },
+                  { id: 'monitoring', label: '營養監測', icon: Activity },
+                  { id: 'medications', label: '藥物資訊', icon: Pill },
+                  { id: 'tentative', label: '臨床計算', icon: Calculator },
+                  { id: 'reminder', label: '諮詢小提醒', icon: Bell },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[11px] font-black transition-all uppercase tracking-widest shrink-0 ${
+                      activeTab === tab.id 
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                        : 'text-slate-400 hover:text-slate-800 hover:bg-white'
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="flex-1 p-8 md:p-12 overflow-y-auto">
+        {/* Basic Info Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">諮詢日期</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input 
+                type="date" 
+                value={state.consultDate || ''}
+                onChange={e => setState({...state, consultDate: e.target.value})}
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              />
+            </div>
+          </div>
+          <div className="md:col-span-2 space-y-1">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">諮詢目標 / 目的</label>
+            <input 
+              type="text" 
+              placeholder="例如：控制血糖、體重管理..."
+              value={state.goal || ''}
+              onChange={e => setState({...state, goal: e.target.value})}
+              className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+            />
+          </div>
+          <div className="md:col-span-3 space-y-1">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">諮詢紀錄</label>
+            <textarea 
+              placeholder="紀錄諮詢過程中的重點..."
+              value={state.notes || ''}
+              onChange={e => setState({...state, notes: e.target.value})}
+              className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all h-24"
+            ></textarea>
+          </div>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {activeTab === 'assessment' && (
+            <motion.div
+              key="assessment"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              {/* Client History */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <User className="w-5 h-5 text-blue-600" />
+                    個案史 (Client Hx)
+                  </h2>
+                  <button 
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white rounded-lg hover:bg-blue-700 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSaving ? '儲存中...' : '儲存紀錄'}
+                  </button>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">姓名</label>
+                    <input type="text" value={state.clientHx.name || ''} onChange={e => setState({...state, clientHx: {...state.clientHx, name: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">性別</label>
+                    <select value={state.clientHx.gender || ''} onChange={e => setState({...state, clientHx: {...state.clientHx, gender: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200">
+                      <option>男</option>
+                      <option>女</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">生日</label>
+                    <input type="date" value={state.clientHx.birthday || ''} onChange={e => setState({...state, clientHx: {...state.clientHx, birthday: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200" />
+                    {state.clientHx.birthday && (
+                      <div className="text-[10px] text-slate-400 ml-1">
+                        年齡: {calculateAge(state.clientHx.birthday)} 歲
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700">工作狀況</label>
+                    <select value={state.clientHx.job || ''} onChange={e => setState({...state, clientHx: {...state.clientHx, job: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200">
+                      <option>在職中</option>
+                      <option>退休</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-5 gap-6 mt-2">
+                    {/* Left side: 工作說明 (3/5) */}
+                    <div className="md:col-span-3 space-y-1">
+                      <label className="text-sm font-medium text-slate-700">工作說明</label>
+                      <textarea 
+                        value={state.clientHx.jobDescription || ''} 
+                        onChange={e => setState({...state, clientHx: {...state.clientHx, jobDescription: e.target.value}})} 
+                        placeholder="請詳述工作/生活作息等內容..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 min-h-[120px] focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all resize-none" 
+                      />
+                    </div>
+
+                    {/* Right side: 宗教/飲食禁忌 & 生活習慣 (2/5) */}
+                    <div className="md:col-span-2 space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-slate-700">宗教/飲食禁忌</label>
+                        <input 
+                          type="text" 
+                          value={state.clientHx.region || ''} 
+                          onChange={e => setState({...state, clientHx: {...state.clientHx, region: e.target.value}})} 
+                          placeholder="例如：蛋奶素、忌牛..."
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" 
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-slate-700">生活習慣</label>
+                        <div className="space-y-2 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                          <div className="flex gap-3">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={!!state.clientHx.habits.none} 
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setState({
+                                    ...state, 
+                                    clientHx: {
+                                      ...state.clientHx, 
+                                      habits: {
+                                        ...state.clientHx.habits, 
+                                        none: checked,
+                                        smoke: checked ? false : state.clientHx.habits.smoke,
+                                        drink: checked ? false : state.clientHx.habits.drink,
+                                        smokeFrequency: checked ? '' : state.clientHx.habits.smokeFrequency,
+                                        drinkFrequency: checked ? '' : state.clientHx.habits.drinkFrequency,
+                                      }
+                                    }
+                                  });
+                                }} 
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500/20" 
+                              />
+                              <span className="text-sm text-slate-600">無</span>
+                            </label>
+
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={state.clientHx.habits.smoke} 
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setState({
+                                    ...state, 
+                                    clientHx: {
+                                      ...state.clientHx, 
+                                      habits: {
+                                        ...state.clientHx.habits, 
+                                        smoke: checked,
+                                        none: checked ? false : (!state.clientHx.habits.drink),
+                                      }
+                                    }
+                                  });
+                                }} 
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500/20" 
+                              />
+                              <span className="text-sm text-slate-600">抽菸</span>
+                            </label>
+
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={state.clientHx.habits.drink} 
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setState({
+                                    ...state, 
+                                    clientHx: {
+                                      ...state.clientHx, 
+                                      habits: {
+                                        ...state.clientHx.habits, 
+                                        drink: checked,
+                                        none: checked ? false : (!state.clientHx.habits.smoke),
+                                      }
+                                    }
+                                  });
+                                }} 
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500/20" 
+                              />
+                              <span className="text-sm text-slate-600">喝酒</span>
+                            </label>
+                          </div>
+
+                          {/* Frequency Inputs inside right slot */}
+                          {state.clientHx.habits.smoke && (
+                            <div className="space-y-0.5">
+                              <label className="text-[10px] font-semibold text-slate-500 block">抽菸頻率</label>
+                              <input
+                                type="text"
+                                value={state.clientHx.habits.smokeFrequency || ''}
+                                onChange={e => setState({
+                                  ...state,
+                                  clientHx: {
+                                    ...state.clientHx,
+                                    habits: {
+                                      ...state.clientHx.habits,
+                                      smokeFrequency: e.target.value
+                                    }
+                                  }
+                                })}
+                                placeholder="如：半包/天"
+                                className="w-full text-xs px-2 py-1 rounded border border-slate-200 outline-none focus:border-blue-500 transition-colors bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {state.clientHx.habits.drink && (
+                            <div className="space-y-0.5">
+                              <label className="text-[10px] font-semibold text-slate-500 block">喝酒頻率</label>
+                              <input
+                                type="text"
+                                value={state.clientHx.habits.drinkFrequency || ''}
+                                onChange={e => setState({
+                                  ...state,
+                                  clientHx: {
+                                    ...state.clientHx,
+                                    habits: {
+                                      ...state.clientHx.habits,
+                                      drinkFrequency: e.target.value
+                                    }
+                                  }
+                                })}
+                                placeholder="如：1罐啤酒/週"
+                                className="w-full text-xs px-2 py-1 rounded border border-slate-200 outline-none focus:border-blue-500 transition-colors bg-white"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 運動習慣 - 落在工作說明與生活習慣下方，佔據整行 5/5 滿版寬度 */}
+                    <div className="md:col-span-5 space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-bold text-slate-800 flex items-center gap-1">
+                          <span>運動習慣</span>
+                        </label>
+                        <button 
+                          type="button" 
+                          onClick={addExerciseItem}
+                          className="flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-800 font-bold bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded transition-all focus:outline-none cursor-pointer"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                          新增
+                        </button>
+                      </div>
+                      <div className="flex flex-col gap-2 max-h-[180px] overflow-y-auto pr-1">
+                        {(state.clientHx.exerciseList || [{ frequency: '', name: '', type: '' }]).map((exerciseItem, idx) => (
+                          <div key={idx} className="relative p-2.5 bg-white rounded-lg border border-slate-100 flex flex-col md:flex-row items-start md:items-center gap-2 group pr-8">
+                            <div className="text-[10px] font-bold text-slate-400 whitespace-nowrap min-w-[35px]">項目 {idx + 1}</div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 w-full">
+                              <input 
+                                type="text" 
+                                placeholder="頻率 (如：3次/週)" 
+                                value={exerciseItem.frequency || ''} 
+                                onChange={e => updateExerciseItem(idx, 'frequency', e.target.value)} 
+                                className="w-full px-2 py-1 text-xs rounded border border-slate-250 bg-slate-50 outline-none focus:border-blue-500 hover:bg-slate-100 transition-colors" 
+                              />
+                              <select 
+                                value={exerciseItem.type || ''} 
+                                onChange={e => updateExerciseItem(idx, 'type', e.target.value)} 
+                                className="w-full px-1.5 py-1 text-xs rounded border border-slate-250 bg-slate-50 outline-none focus:border-blue-500 hover:bg-slate-100 transition-colors"
+                              >
+                                <option value="">選擇類型</option>
+                                {EXERCISE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                              <input 
+                                type="text" 
+                                placeholder="具體運動 (如：慢跑)" 
+                                value={exerciseItem.name || ''} 
+                                onChange={e => updateExerciseItem(idx, 'name', e.target.value)} 
+                                className="w-full px-2 py-1 text-xs rounded border border-slate-250 bg-slate-50 outline-none focus:border-blue-500 hover:bg-slate-100 transition-colors" 
+                              />
+                            </div>
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => removeExerciseItem(idx)}
+                                className="absolute top-1/2 -translate-y-1/2 right-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition-all focus:outline-none"
+                                title="刪除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Next row: 家族史 / 社會史 & 活動強度評估 */}
+                  <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-4 gap-6 mt-4 pt-4 border-t border-slate-100 font-sans">
+                    {/* Left: Histories */}
+                    <div className="md:col-span-3 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700 font-bold flex items-center gap-1">
+                            <History className="w-4 h-4 text-blue-500" />
+                            家族史 (Family Hx)
+                          </label>
+                          <textarea 
+                            value={state.clientHx.familyHx || ''} 
+                            onChange={e => setState({...state, clientHx: {...state.clientHx, familyHx: e.target.value}})} 
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none min-h-[80px] resize-none" 
+                            placeholder="例如：父母有高血壓、糖尿病..." 
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700 font-bold flex items-center gap-1">
+                            <History className="w-4 h-4 text-teal-500" />
+                            社會史 (Social Hx)
+                          </label>
+                          <textarea 
+                            value={state.clientHx.socialHx || ''} 
+                            onChange={e => setState({...state, clientHx: {...state.clientHx, socialHx: e.target.value}})} 
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none min-h-[80px] resize-none" 
+                            placeholder="例如：與家人同住、三餐外食為主..." 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: 活動強度評估 (計算用) */}
+                    <div className="md:col-span-1 p-3 bg-slate-50/50 rounded-xl border border-slate-100 flex flex-col justify-center space-y-2 h-full">
+                      <label className="text-xs font-semibold text-slate-700 block mb-1">活動強度評估 (計算用)</label>
+                      <select 
+                        value={state.clientHx.exercise.activityFactor || ''} 
+                        onChange={e => setState({...state, clientHx: {...state.clientHx, exercise: {...state.clientHx.exercise, activityFactor: e.target.value as any}}})} 
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all"
+                      >
+                        <option value="">活動因子</option>
+                        {ACTIVITY_FACTORS.map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                </div>
+              </section>
+
+              {/* Anthropometry */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Calculator className="w-5 h-5 text-blue-600" />
+                    體位測量 (Anthropometry)
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() => {
+                        if (!state.anthropometry.weight && !state.anthropometry.waist && !state.anthropometry.bodyFat) {
+                          alert('請輸入體重、腰圍或體脂後再進行同步');
+                          return;
+                        }
+                        const targetWeightDate = state.anthropometry.weightDate || new Date().toISOString().split('T')[0];
+                        const currentWeight = state.anthropometry.weight || '';
+                        const currentWaist = state.anthropometry.waist || '';
+                        const currentBodyFat = state.anthropometry.bodyFat || '';
+
+                        // 1) Legacy backup sync
+                        let latestHistory = [...state.monitoring.history];
+                        
+                        // If we are modifying a clicked record and the date has changed, remove the record under the old date
+                        if (clickedWeightHistoryDate && clickedWeightHistoryDate !== targetWeightDate) {
+                          latestHistory = latestHistory.filter(h => h.date !== clickedWeightHistoryDate);
+                        }
+
+                        const existingIdx = latestHistory.findIndex(h => h.date === targetWeightDate);
+                        if (existingIdx > -1) {
+                          latestHistory[existingIdx] = {
+                            ...latestHistory[existingIdx],
+                            weight: currentWeight,
+                            waist: currentWaist,
+                            bodyFat: currentBodyFat
+                          };
+                        } else {
+                          latestHistory.push({
+                            date: targetWeightDate,
+                            weight: currentWeight,
+                            waist: currentWaist,
+                            bodyFat: currentBodyFat,
+                            ac: '', hba1c: '', egfr: '', tg: '', ldl: '', tc: '', uricAcid: '', hdl: '', ast: '', alt: '', bp: '',
+                            other: '從體位表單同步'
+                          });
+                        }
+
+                        // 2) Modern weightHistory sync
+                        let updatedWeightHistory = [...(state.monitoring.weightHistory || [])];
+
+                        // If we are modifying a clicked record and the date has changed, remove the record under the old date
+                        if (clickedWeightHistoryDate && clickedWeightHistoryDate !== targetWeightDate) {
+                          updatedWeightHistory = updatedWeightHistory.filter(h => h.date !== clickedWeightHistoryDate);
+                        }
+
+                        const existingWIdx = updatedWeightHistory.findIndex(h => h.date === targetWeightDate);
+                        if (existingWIdx > -1) {
+                          updatedWeightHistory[existingWIdx] = {
+                            ...updatedWeightHistory[existingWIdx],
+                            weight: currentWeight,
+                            waist: currentWaist,
+                            bodyFat: currentBodyFat
+                          };
+                        } else {
+                          updatedWeightHistory.push({
+                            id: Date.now().toString() + '-sync-w',
+                            date: targetWeightDate,
+                            weight: currentWeight,
+                            waist: currentWaist,
+                            bodyFat: currentBodyFat
+                          });
+                        }
+
+                        setState({
+                          ...state,
+                          anthropometry: {
+                            ...state.anthropometry,
+                            weightDate: targetWeightDate
+                          },
+                          monitoring: {
+                            ...state.monitoring,
+                            history: latestHistory,
+                            weightHistory: updatedWeightHistory
+                          }
+                        });
+                        setClickedWeightHistoryDate(null); // Reset click tracking after sync
+                        alert('體位數據已同步至監測紀錄');
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-150 rounded-lg hover:bg-blue-100 text-sm transition-colors shadow-sm cursor-pointer font-medium"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      同步至監測紀錄
+                    </button>
+                    <button 
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white rounded-lg hover:bg-blue-700 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSaving ? '儲存中...' : '儲存紀錄'}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-6 space-y-6">
+                  {/* Row 1: Height, Weight, Weight Date, BMI */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">身高 (cm)</label>
+                      <input type="number" value={state.anthropometry.height || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, height: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">體重 (kg)</label>
+                      <input type="number" value={state.anthropometry.weight || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, weight: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">體重測量日期</label>
+                      <input type="date" value={state.anthropometry.weightDate || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, weightDate: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">BMI</label>
+                      <div className={`px-3 py-2 rounded-lg font-bold border ${parseFloat(state.anthropometry.bmi || '0') >= 24 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                        {state.anthropometry.bmi || '--'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2: IBW, ABW, Waist, Body Fat */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 border-t border-slate-100 pt-4">
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700 font-bold">
+                        IBW (標準體重) 
+                        <span className="text-[10px] ml-1 text-slate-400">
+                          ({(calculateAge(state.clientHx.birthday) >= 50 ? 25 : 22)})
+                        </span>
+                      </label>
+                      <div className="px-3 py-2 rounded-lg font-bold border bg-slate-50 border-slate-200 text-slate-700">
+                        {state.anthropometry.ibw || '--'}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700 font-bold">ABW (調整體重)</label>
+                      <div className="px-3 py-2 rounded-lg font-bold border bg-slate-50 border-slate-200 text-slate-700">
+                        {state.anthropometry.abw || '--'}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">腰圍 (cm)</label>
+                      <input type="number" value={state.anthropometry.waist || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, waist: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">體脂率 (%)</label>
+                      <input type="number" step="0.1" value={state.anthropometry.bodyFat || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, bodyFat: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                    </div>
+                  </div>
+
+                  {/* Row 3: Edema, Notes */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6 border-t border-slate-100 pt-4">
+                    <div className="space-y-1 col-span-1">
+                      <label className="text-sm font-medium text-slate-700">水腫狀況</label>
+                      <select value={state.anthropometry.edema || ''} onChange={e => setState({...state, anthropometry: {...state.anthropometry, edema: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                        <option>無</option>
+                        <option>輕微 (+)</option>
+                        <option>中度 (++)</option>
+                        <option>嚴重 (+++)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 md:col-span-3">
+                      <label className="text-sm font-medium text-slate-700">備註 (Notes)</label>
+                      <input 
+                        type="text" 
+                        value={state.anthropometry.notes || ''} 
+                        onChange={e => setState({...state, anthropometry: {...state.anthropometry, notes: e.target.value}})} 
+                        placeholder="自由填寫備註..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 outline-none" 
+                      />
+                    </div>
+                  </div>
+
+                  {/* Weight Loss Clinical Risk & Calculations Section (Renamed to 體重變化) */}
+                  <div className="border-t border-slate-100 pt-5 mt-2 bg-slate-50/50 rounded-2xl p-4 border border-slate-100 space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => setWeightChangeExpanded(!weightChangeExpanded)}
+                      className="w-full flex items-center justify-between text-slate-800 font-bold hover:bg-slate-100/50 p-1.5 -mx-1.5 rounded-xl transition-all cursor-pointer text-left focus:outline-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Scale className="w-4 h-4 text-emerald-600" />
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          體位變化
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 text-emerald-700 font-medium whitespace-nowrap">
+                          NCP 體位評估指標
+                        </span>
+                        <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100 shadow-2xs hover:bg-emerald-100 transition-colors whitespace-nowrap font-sans">
+                          {weightChangeExpanded ? '收合 ▲' : '展開 ▼'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {weightChangeExpanded && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="space-y-4 pt-2 border-t border-slate-200/50"
+                      >
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                     {/* Left: Historical record format table */}
+                      <div className="lg:col-span-2 space-y-3 bg-white p-4 rounded-xl border border-slate-100 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dashed border-slate-100 pb-1.5">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block">
+                            📋 體位歷史紀錄 (體重 / 腰圍 / 體脂率)
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            點擊日期 📥 可帶入上方體位測量表單
+                          </span>
+                        </div>
+
+                        
+                        <div className="overflow-x-auto rounded-lg border border-slate-100">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-500 border-b border-slate-100">
+                                <th className="px-3 py-2 font-semibold">測量日期</th>
+                                <th className="px-3 py-2 font-semibold">體重 (kg)</th>
+                                <th className="px-3 py-2 font-semibold">腰圍 (cm)</th>
+                                <th className="px-3 py-2 font-semibold">體脂率 (%)</th>
+                                <th className="px-3 py-2 font-semibold">體重變動率 (%)</th>
+                                <th className="px-3 py-2 font-semibold">狀態評估 (Status)</th>
+                                <th className="px-3 py-2 font-semibold text-center">操作</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50 text-slate-700">
+                              {sortedWeightHistory.length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="px-3 py-6 text-center text-slate-450 italic">
+                                    尚無體位歷史紀錄。在上方輸入相關數據並按下「同步至監測紀錄」即可在此顯示。
+                                  </td>
+                                </tr>
+                              ) : (
+                                sortedWeightHistory.map((record, index) => {
+                                  const prev = index > 0 ? sortedWeightHistory[index - 1] : null;
+                                  let rateStr = '--';
+                                  let statusEl = <span className="text-slate-400 font-medium">始點紀錄 / 基準</span>;
+
+                                  if (prev) {
+                                    const prevW = parseFloat(String(prev.weight));
+                                    const currW = parseFloat(String(record.weight));
+                                    if (!isNaN(prevW) && !isNaN(currW) && prevW > 0) {
+                                      // 體重變動率 = (此次 - 上次) / 上次 * 100%
+                                      const rate = ((currW - prevW) / prevW) * 100;
+                                      rateStr = `${rate > 0 ? '+' : ''}${rate.toFixed(1)}%`;
+                                      
+                                      if (rate < 0) {
+                                        statusEl = (
+                                          <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-bold block text-center whitespace-nowrap">
+                                            體重減輕 {Math.abs(rate).toFixed(1)}%
+                                          </span>
+                                        );
+                                      } else if (rate > 0) {
+                                        statusEl = (
+                                          <span className="text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-100 font-bold block text-center whitespace-nowrap">
+                                            體重增加
+                                          </span>
+                                        );
+                                      } else {
+                                        statusEl = <span className="text-slate-500 font-medium block text-center whitespace-nowrap">無變動</span>;
+                                      }
+                                    }
+                                  }
+
+                                  // 腰圍前後變動差
+                                  const currWaistNum = record.waist ? parseFloat(String(record.waist)) : NaN;
+                                  const prevWaistNum = prev && prev.waist ? parseFloat(String(prev.waist)) : NaN;
+                                  let waistDiffStr = '';
+                                  if (!isNaN(currWaistNum) && !isNaN(prevWaistNum)) {
+                                    const diff = currWaistNum - prevWaistNum;
+                                    if (diff !== 0) {
+                                      waistDiffStr = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`;
+                                    }
+                                  }
+
+                                  // 體脂率前後變動差
+                                  const currFatNum = record.bodyFat ? parseFloat(String(record.bodyFat)) : NaN;
+                                  const prevFatNum = prev && prev.bodyFat ? parseFloat(String(prev.bodyFat)) : NaN;
+                                  let fatDiffStr = '';
+                                  if (!isNaN(currFatNum) && !isNaN(prevFatNum)) {
+                                    const diff = currFatNum - prevFatNum;
+                                    if (diff !== 0) {
+                                      fatDiffStr = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+                                    }
+                                  }
+
+                                  return (
+                                    <tr key={index} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="px-3 py-2.5 font-mono font-medium whitespace-nowrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClickedWeightHistoryDate(record.date);
+                                            setState({
+                                              ...state,
+                                              anthropometry: {
+                                                ...state.anthropometry,
+                                                weight: record.weight ? String(record.weight) : state.anthropometry.weight,
+                                                weightDate: record.date,
+                                                waist: record.waist !== undefined && record.waist !== '' ? String(record.waist) : state.anthropometry.waist,
+                                                bodyFat: record.bodyFat !== undefined && record.bodyFat !== '' ? String(record.bodyFat) : state.anthropometry.bodyFat
+                                              }
+                                            });
+                                            
+                                          }}
+                                          title="帶入上方輸入框"
+                                          className="text-blue-600 hover:underline cursor-pointer focus:outline-none flex items-center gap-1 font-semibold"
+                                        >
+                                          {record.date} 📥
+                                        </button>
+                                      </td>
+                                      <td className="px-3 py-2.5 font-bold text-slate-800 whitespace-nowrap">{record.weight || '--'} kg</td>
+                                      <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">
+                                        {record.waist ? (
+                                          <div className="flex items-center gap-1">
+                                            <span>{record.waist} cm</span>
+                                            {waistDiffStr && (
+                                              <span className={`text-[10px] font-mono font-bold ${waistDiffStr.startsWith('-') ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                ({waistDiffStr})
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">--</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">
+                                        {record.bodyFat ? (
+                                          <div className="flex items-center gap-1">
+                                            <span>{record.bodyFat}%</span>
+                                            {fatDiffStr && (
+                                              <span className={`text-[10px] font-mono font-bold ${fatDiffStr.startsWith('-') ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                ({fatDiffStr})
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">--</span>
+                                        )}
+                                      </td>
+                                      <td className={`px-3 py-2.5 font-mono font-bold whitespace-nowrap ${rateStr.startsWith('-') ? 'text-emerald-600' : rateStr.startsWith('+') ? 'text-red-650' : 'text-slate-500'}`}>
+                                        {rateStr}
+                                      </td>
+                                      <td className="px-3 py-2.5">{statusEl}</td>
+                                      <td className="px-3 py-2.5 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const newHistory = state.monitoring.history.filter(h => h.date !== record.date);
+                                            const newWeightHistory = (state.monitoring.weightHistory || []).filter(h => h.date !== record.date);
+                                            if (clickedWeightHistoryDate === record.date) {
+                                              setClickedWeightHistoryDate(null);
+                                            }
+                                            setState({
+                                              ...state,
+                                              monitoring: {
+                                                ...state.monitoring,
+                                                history: newHistory,
+                                                weightHistory: newWeightHistory
+                                              }
+                                            });
+                                         }}
+                                          className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                                          title="刪除此筆紀錄"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Right: NCP Alert reference and notifications */}
+                      <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-100 shadow-xs">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block border-b border-dashed border-slate-100 pb-1.5">
+                          ⚠️ NCP 臨床體位與流失警示
+                        </span>
+
+                        <div className="text-xs text-slate-600 leading-relaxed space-y-1.5 p-3 bg-slate-50/55 border border-slate-100 rounded-xl">
+                          <p className="font-bold text-indigo-900">臨床體重流失警訊標準 (NCP)：</p>
+                          <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-600 font-medium">
+                            <li><strong>1 星期</strong> 下降 <span className="text-red-600 font-bold">2%</span> 原體重</li>
+                            <li><strong>1 個月</strong> 下降 <span className="text-red-600 font-bold">5%</span> 原體重</li>
+                            <li><strong>6 個月</strong> 下降 <span className="text-red-600 font-bold">10%</span> 原體重</li>
+                          </ul>
+                          <div className="pt-2 border-t border-slate-200/60 mt-2 space-y-1">
+                            <p className="font-bold text-slate-700">腰圍與體脂率指引標準：</p>
+                            <p className="text-[11px] text-slate-600">• <strong>腰圍警戒</strong>：男 ≧ 90 cm、女 ≧ 80 cm（代謝症候群指標）</p>
+                            <p className="text-[11px] text-slate-600">• <strong>體脂率標準</strong>：男 14~24%（&gt;25% 偏高）；女 17~27%（&gt;30% 偏高）</p>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-1 italic">
+                            ※ 系統自動記錄每次腰圍與體脂率，並比對前後差值變化。
+                          </p>
+                        </div>
+
+                        {weightLossAnalysis.alerts.length > 0 ? (
+                          <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 space-y-1 shadow-xs">
+                            <span className="font-bold flex items-center gap-1 text-red-800">⚠️ 臨床顯著體重流失提醒：</span>
+                            {weightLossAnalysis.alerts.map((al, idx) => (
+                              <p key={idx} className="pl-2 font-medium text-[11px]">• {al}</p>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-700 text-center font-semibold">
+                            ✓ 歷史體重變動正常，未達臨床流失警示標準。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Muscle Mass & Sarcopenia Subsection */}
+                  <div className="md:col-span-4 border-t border-slate-100 pt-5 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setSarcopeniaExpanded(!sarcopeniaExpanded)}
+                      className="w-full flex items-center justify-between text-slate-800 font-bold hover:bg-slate-50 p-2 -mx-2 rounded-xl transition-all cursor-pointer text-left focus:outline-none mb-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-5 bg-indigo-600 rounded"></div>
+                        <h3 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+                          肌力評估
+                        </h3>
+                      </div>
+                      <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-100 shadow-2xs hover:bg-indigo-100 transition-colors">
+                        {sarcopeniaExpanded ? '收合 ▲' : '展開 ▼'}
+                      </span>
+                    </button>
+
+                    {sarcopeniaExpanded && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="space-y-4"
+                      >
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-600">1. 右手肌肉量 (kg)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={state.anthropometry.rightArmMuscle || ''}
+                          onChange={e => setState({
+                            ...state,
+                            anthropometry: { ...state.anthropometry, rightArmMuscle: e.target.value }
+                          })}
+                          placeholder="例如: 2.1"
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-600">2. 左手肌肉量 (kg)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={state.anthropometry.leftArmMuscle || ''}
+                          onChange={e => setState({
+                            ...state,
+                            anthropometry: { ...state.anthropometry, leftArmMuscle: e.target.value }
+                          })}
+                          placeholder="例如: 2.0"
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-600">3. 右腳肌肉量 (kg)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={state.anthropometry.rightLegMuscle || ''}
+                          onChange={e => setState({
+                            ...state,
+                            anthropometry: { ...state.anthropometry, rightLegMuscle: e.target.value }
+                          })}
+                          placeholder="例如: 6.5"
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-600">4. 左腳肌肉量 (kg)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={state.anthropometry.leftLegMuscle || ''}
+                          onChange={e => setState({
+                            ...state,
+                            anthropometry: { ...state.anthropometry, leftLegMuscle: e.target.value }
+                          })}
+                          placeholder="例如: 6.3"
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1 col-span-2 md:col-span-1">
+                        <label className="text-xs font-semibold text-slate-600">5. 手握力 (kg)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={state.anthropometry.gripStrength || ''}
+                          onChange={e => setState({
+                            ...state,
+                            anthropometry: { ...state.anthropometry, gripStrength: e.target.value }
+                          })}
+                          placeholder="例如: 32.5"
+                          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none bg-white font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 bg-indigo-50/50 rounded-xl p-4 border border-indigo-100 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-2xs">
+                      <div className="space-y-2.5 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-indigo-700 font-bold bg-indigo-100 px-2 py-0.5 rounded-md">
+                            6. 自動評估 (AWGS 2025)
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-3 rounded-lg border border-indigo-100/60 shadow-2xs">
+                          {sarcopeniaAnalysis.asmi && (
+                            <div className="text-xs text-slate-600">
+                              <span className="font-semibold block text-slate-500 mb-0.5">ASM 肌肉量 (ASMI):</span>
+                              <strong className="text-indigo-950 font-black text-sm bg-indigo-50/40 px-2 py-0.5 rounded border border-indigo-100">{sarcopeniaAnalysis.asmi}</strong> kg/m²
+                              <span className="text-[10px] text-slate-400 block mt-0.5">(公式：10000 * 四肢肌肉量 / 身高²)</span>
+                            </div>
+                          )}
+                          {sarcopeniaAnalysis.asmOverBmi && (
+                            <div className="text-xs text-slate-600">
+                              <span className="font-semibold block text-slate-500 mb-0.5">校正型 (ASM/BMI):</span>
+                              <strong className="text-indigo-950 font-black text-sm bg-indigo-50/40 px-2 py-0.5 rounded border border-indigo-100">{sarcopeniaAnalysis.asmOverBmi}</strong> m²
+                              <span className="text-[10px] text-slate-400 block mt-0.5">(公式：四肢肌肉量 / BMI)</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap pt-1">
+                          <span>是否符合肌少症判斷：</span>
+                          <span className={`px-3 py-1 rounded-lg text-sm font-black ${sarcopeniaAnalysis.isSarcopenia ? 'bg-amber-105 text-amber-900 border border-amber-250 animate-pulse' : sarcopeniaAnalysis.applicable ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
+                            {sarcopeniaAnalysis.result}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-[11px] text-slate-500 space-y-1.5 bg-white p-3 rounded-lg border border-slate-200 xl:max-w-md">
+                        <p className="font-bold text-slate-700 flex items-center gap-1">🔍 AWGS 2025 診斷標準 (手握力 &amp; 校正型)：</p>
+                        <div className="grid grid-cols-2 gap-3 pl-1 text-[10px]">
+                          <div>
+                            <p className="font-bold text-slate-600 border-b border-slate-100 pb-0.5">≥ 65 歲</p>
+                            <p>● 男 <span className="font-semibold text-slate-700">&lt; 28.0kg</span> 且 校正型 <span className="font-semibold text-slate-700">&lt; 0.83</span></p>
+                            <p>● 女 <span className="font-semibold text-slate-700">&lt; 18.0kg</span> 且 校正型 <span className="font-semibold text-slate-700">&lt; 0.57</span></p>
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-600 border-b border-slate-100 pb-0.5">50 至 64 歲</p>
+                            <p>● 男 <span className="font-semibold text-slate-700">&lt; 34.0kg</span> 且 校正型 <span className="font-semibold text-slate-700">&lt; 0.90</span></p>
+                            <p>● 女 <span className="font-semibold text-slate-700">&lt; 20.0kg</span> 且 校正型 <span className="font-semibold text-slate-700">&lt; 0.63</span></p>
+                          </div>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-400 pt-1 border-t border-slate-50 pb-0.5">
+                          目前設定：性別 [<span className="font-bold text-indigo-600">{state.clientHx.gender || '未填'}</span>] ｜ 
+                          年齡 [<span className="font-bold text-indigo-600">{sarcopeniaAnalysis.age ? `${sarcopeniaAnalysis.age} 歲` : '未填'}</span>] ｜ 
+                          BMI [<span className="font-bold text-indigo-600">{state.anthropometry.bmi || '未計'}</span>]
+                        </p>
+                      </div>
+                    </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Biochemistry */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-blue-600" />
+                    生化數值 (Biochemistry)
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-slate-600">報告日期</label>
+                      <input 
+                        type="date"
+                        value={state.biochemistryDate || ''}
+                        onChange={e => setState({...state, biochemistryDate: e.target.value})}
+                        className="px-3 py-1.5 text-sm rounded-lg border border-slate-200"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const biochemDate = state.biochemistryDate || new Date().toISOString().split('T')[0];
+                        const weightDate = state.anthropometry.weightDate || biochemDate;
+
+                        const biochemPayload = {
+                          ac: state.biochemistry.AC || '',
+                          pc: state.biochemistry.PC || '',
+                          hba1c: state.biochemistry.HbA1c || '',
+                          bun: state.biochemistry.BUN || '',
+                          cr: state.biochemistry.Cr || '',
+                          egfr: state.biochemistry.eGFR || '',
+                          upcr: state.biochemistry.UPCR || '',
+                          uricAcid: state.biochemistry.UricAcid || '',
+                          na: state.biochemistry.Na || '',
+                          k: state.biochemistry.K || '',
+                          tc: state.biochemistry.TC || '',
+                          hdl: state.biochemistry.HDL || '',
+                          ldl: state.biochemistry.LDL || '',
+                          tg: state.biochemistry.TG || '',
+                          ast: state.biochemistry.AST || '',
+                          alt: state.biochemistry.ALT || '',
+                          alb: state.biochemistry.Alb || '',
+                          bp: state.biochemistry.BP || '',
+                          weight: state.anthropometry.weight || '',
+                          other: '從生化表單同步'
+                        };
+
+                        // 1) Handle biochemHistory update/insert
+                        let updatedBiochemHistory = [...(state.monitoring.biochemHistory || [])];
+                        if (clickedBiochemHistoryDate && clickedBiochemHistoryDate !== biochemDate) {
+                          // Filter out the old record under the pre-changed date
+                          updatedBiochemHistory = updatedBiochemHistory.filter(h => h.date !== clickedBiochemHistoryDate);
+                        }
+
+                        const existingBIdx = updatedBiochemHistory.findIndex(h => h.date === biochemDate);
+                        if (existingBIdx > -1) {
+                          updatedBiochemHistory[existingBIdx] = {
+                            ...updatedBiochemHistory[existingBIdx],
+                            ...biochemPayload,
+                            other: updatedBiochemHistory[existingBIdx]?.other || '從生化表單同步'
+                          };
+                        } else {
+                          updatedBiochemHistory.push({
+                            id: Date.now().toString() + '-sync-b',
+                            date: biochemDate,
+                            ...biochemPayload
+                          });
+                        }
+
+                        // 2) Handle legacy monitoring history
+                        let updatedHistory = [...(state.monitoring.history || [])];
+                        if (clickedBiochemHistoryDate && clickedBiochemHistoryDate !== biochemDate) {
+                          updatedHistory = updatedHistory.filter(h => h.date !== clickedBiochemHistoryDate);
+                        }
+
+                        const existingHIdx = updatedHistory.findIndex(h => h.date === biochemDate);
+                        if (existingHIdx > -1) {
+                          updatedHistory[existingHIdx] = {
+                            ...updatedHistory[existingHIdx],
+                            weight: updatedHistory[existingHIdx].weight || state.anthropometry.weight || '',
+                            ...biochemPayload,
+                            other: updatedHistory[existingHIdx]?.other || '從生化表單同步'
+                          };
+                        } else {
+                          updatedHistory.push({
+                            date: biochemDate,
+                             weight: state.anthropometry.weight || '',
+                            ...biochemPayload
+                          });
+                        }
+
+                        // 3) Weight history sync (if weight is entered)
+                        let updatedWeightHistory = [...(state.monitoring.weightHistory || [])];
+                        if (state.anthropometry.weight) {
+                          if (clickedBiochemHistoryDate && clickedBiochemHistoryDate !== weightDate) {
+                            updatedWeightHistory = updatedWeightHistory.filter(h => h.date !== clickedBiochemHistoryDate);
+                          }
+                          const existingWIdx = updatedWeightHistory.findIndex(h => h.date === weightDate);
+                          if (existingWIdx > -1) {
+                            updatedWeightHistory[existingWIdx] = {
+                              ...updatedWeightHistory[existingWIdx],
+                              weight: state.anthropometry.weight,
+                              waist: state.anthropometry.waist || '',
+                              bodyFat: state.anthropometry.bodyFat || ''
+                            };
+                          } else {
+                            updatedWeightHistory.push({
+                              id: Date.now().toString() + '-sync-bw',
+                              date: weightDate,
+                              weight: state.anthropometry.weight,
+                              waist: state.anthropometry.waist || '',
+                              bodyFat: state.anthropometry.bodyFat || ''
+                            });
+                          }
+                        }
+
+                        setState({
+                          ...state,
+                          monitoring: {
+                            ...state.monitoring,
+                            history: updatedHistory,
+                            biochemHistory: updatedBiochemHistory,
+                            weightHistory: updatedWeightHistory
+                          }
+                        });
+                        setClickedBiochemHistoryDate(null); // Reset click tracking
+                        alert('數據已分別同步至體重與生化監測紀錄');
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-150 rounded-lg hover:bg-blue-100 text-sm transition-colors shadow-sm"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      同步至監測紀錄
+                    </button>
+                    <button 
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white rounded-lg hover:bg-blue-700 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSaving ? '儲存中...' : '儲存紀錄'}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 border-b border-slate-100">
+                  {Object.keys(state.biochemistry).map(key => {
+                    const range = BIO_RANGES[key];
+                    const val = state.biochemistry[key];
+                    const num = parseFloat(val);
+                    let isAbnormal = false;
+                    if (val && !isNaN(num)) {
+                      if (key === 'HDL') {
+                        const gender = state.clientHx.gender;
+                        if (gender === '女') {
+                          isAbnormal = num < 50;
+                        } else {
+                          // '男' or unselected default
+                          isAbnormal = num < 40;
+                        }
+                      } else if (range) {
+                        if (range.min !== undefined && range.max !== undefined) {
+                          isAbnormal = num < range.min || num > range.max;
+                        } else if (range.max !== undefined) {
+                          isAbnormal = num >= range.max;
+                        } else if (range.min !== undefined) {
+                          isAbnormal = num <= range.min;
+                        }
+                      }
+                    }
+
+                    let warningNote = '';
+                    if (!isNaN(num)) {
+                      if (key === 'TG' && num >= 150) {
+                        warningNote = '注意水果、精緻糖、麵包、超市咖啡';
+                      } else if (key === 'UricAcid' && num > 7.7) {
+                        warningNote = '注意水分太少、鹽分、蛋白質量、蔗糖/果糖(飲料)';
+                      } else if (key === 'TC' && num >= 200) {
+                        warningNote = '注意蔬菜、睡眠';
+                      } else if (key === 'BUN' && num > 26) {
+                        warningNote = '與檢驗前的飲水量有關';
+                      } else if (key === 'Cr' && num > 1.3) {
+                        warningNote = '與檢驗前的飲水量有關';
+                      }
+                    }
+
+                    return (
+                      <div key={key} className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500 uppercase">{key}</label>
+                        <input 
+                          type="text" 
+                          value={val || ''} 
+                          onChange={e => setState({...state, biochemistry: {...state.biochemistry, [key]: e.target.value}})}
+                          className={`w-full px-2 py-1 text-sm rounded border transition-colors ${
+                            isAbnormal 
+                              ? 'border-red-500 bg-red-50 text-red-700 focus:ring-red-500' 
+                              : 'border-slate-200 focus:ring-blue-500'
+                          }`} 
+                        />
+                        {range && (
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            標準: {key === 'HDL' 
+                              ? (state.clientHx.gender === '女' ? '> 50' : (state.clientHx.gender === '男' ? '> 40' : range.label))
+                              : range.label}
+                          </div>
+                        )}
+                        {warningNote && (
+                          <div className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded p-1 mt-1 leading-tight flex items-start gap-0.5">
+                            <span className="shrink-0">⚠️</span>
+                            <span>{warningNote}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="p-6 bg-slate-50/50 space-y-4">
+                  {/* Historical Biochemistry Trend Comparison Block */}
+                  {sortedBioHistory && sortedBioHistory.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setBiochemHistoryExpanded(!biochemHistoryExpanded)}
+                        className="w-full flex items-center justify-between text-slate-850 font-bold hover:bg-slate-50 p-1.5 -mx-1.5 rounded-xl transition-all cursor-pointer text-left focus:outline-none"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <History className="w-4 h-4 text-blue-600" />
+                          <h3 className="text-sm font-bold text-slate-850">
+                            生化數值追蹤
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            共 {sortedBioHistory.length} 筆監測紀錄 (由舊至新)
+                          </span>
+                          <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 shadow-2xs hover:bg-blue-100 transition-colors whitespace-nowrap font-sans">
+                            {biochemHistoryExpanded ? '收合 ▲' : '展開 ▼'}
+                          </span>
+                        </div>
+                      </button>
+
+                      {biochemHistoryExpanded && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="pt-2 border-t border-slate-100"
+                        >
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-slate-50/80 text-slate-500 border-b border-slate-100">
+                                  <th className="px-3 py-2 font-semibold">報告日期</th>
+                                  <th className="px-3 py-2 font-semibold">AC</th>
+                                  <th className="px-3 py-2 font-semibold">HbA1c (%)</th>
+                                  <th className="px-3 py-2 font-semibold">BUN</th>
+                                  <th className="px-3 py-2 font-semibold">Cr</th>
+                                  <th className="px-3 py-2 font-semibold">eGFR</th>
+                                  <th className="px-3 py-2 font-semibold">TG</th>
+                                  <th className="px-3 py-2 font-semibold">HDL</th>
+                                  <th className="px-3 py-2 font-semibold">LDL</th>
+                                  <th className="px-3 py-2 font-semibold">TC</th>
+                                  <th className="px-3 py-2 font-semibold">AST</th>
+                                  <th className="px-3 py-2 font-semibold">ALT</th>
+                                  <th className="px-3 py-2 font-semibold">UA</th>
+                                  <th className="px-3 py-2 font-semibold">BP</th>
+                                  <th className="px-3 py-2 font-semibold text-center">操作</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-slate-700">
+                                {sortedBioHistory.map((record, index) => {
+                                  const prev = index > 0 ? sortedBioHistory[index - 1] : null;
+                                  
+                                  const getTrend = (currValStr: any, prevValStr: any, lowerIsBetter: boolean = true) => {
+                                    const curr = parseFloat(String(currValStr));
+                                    const prevVal = parseFloat(String(prevValStr));
+                                    if (isNaN(curr) || isNaN(prevVal)) return null;
+                                    if (curr === prevVal) return <span className="text-slate-400 text-[10px] ml-1">─</span>;
+                                    const diff = curr - prevVal;
+                                    const isBetter = lowerIsBetter ? (diff < 0) : (diff > 0);
+                                    const sign = diff > 0 ? '↑' : '↓';
+                                    const color = isBetter ? 'text-green-600 font-bold' : 'text-red-500 font-bold';
+                                    return (
+                                      <span className={`${color} text-[10px] ml-1 select-none`} title={`較前次變動: ${diff > 0 ? '+' : ''}${diff.toFixed(1)}`}>
+                                        {sign}{Math.abs(diff).toFixed(1)}
+                                      </span>
+                                    );
+                                  };
+
+                                  const getBpTrend = (currStr: any, prevStr: any) => {
+                                    if (!currStr) return '--';
+                                    if (!prevStr) return String(currStr);
+                                    const parseBp = (str: string) => {
+                                      const parts = str.split('/').map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+                                      return parts.length === 2 ? parts : null;
+                                    };
+                                    const currBp = parseBp(String(currStr));
+                                    const prevBp = parseBp(String(prevStr));
+                                    if (!currBp || !prevBp) return currStr;
+                                    return (
+                                      <span>
+                                        {currStr}
+                                        <span className="text-[9px] text-slate-400 ml-1">
+                                          ({currBp[0] > prevBp[0] ? '↑' : currBp[0] < prevBp[0] ? '↓' : '─'}/
+                                          {currBp[1] > prevBp[1] ? '↑' : currBp[1] < prevBp[1] ? '↓' : '─'})
+                                        </span>
+                                      </span>
+                                    );
+                                  };
+
+                                  return (
+                                    <tr key={index} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="px-3 py-2.5 font-mono">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClickedBiochemHistoryDate(record.date);
+                                            setState({
+                                              ...state,
+                                              biochemistryDate: record.date || state.biochemistryDate,
+                                              anthropometry: {
+                                                ...state.anthropometry,
+                                                weight: record.weight !== undefined && record.weight !== '' ? record.weight : state.anthropometry.weight,
+                                                weightDate: record.date || state.anthropometry.weightDate
+                                              },
+                                              biochemistry: {
+                                                BP: record.bp !== undefined && record.bp !== null ? String(record.bp) : '',
+                                                AC: record.ac !== undefined && record.ac !== null ? String(record.ac) : '',
+                                                PC: record.pc !== undefined && record.pc !== null ? String(record.pc) : '',
+                                                HbA1c: record.hba1c !== undefined && record.hba1c !== null ? String(record.hba1c) : '',
+                                                BUN: record.bun !== undefined && record.bun !== null ? String(record.bun) : '',
+                                                Cr: record.cr !== undefined && record.cr !== null ? String(record.cr) : '',
+                                                eGFR: record.egfr !== undefined && record.egfr !== null ? String(record.egfr) : '',
+                                                UPCR: record.upcr !== undefined && record.upcr !== null ? String(record.upcr) : '',
+                                                UricAcid: record.uricAcid !== undefined && record.uricAcid !== null ? String(record.uricAcid) : '',
+                                                Na: record.na !== undefined && record.na !== null ? String(record.na) : '',
+                                                K: record.k !== undefined && record.k !== null ? String(record.k) : '',
+                                                TC: record.tc !== undefined && record.tc !== null ? String(record.tc) : '',
+                                                HDL: record.hdl !== undefined && record.hdl !== null ? String(record.hdl) : '',
+                                                LDL: record.ldl !== undefined && record.ldl !== null ? String(record.ldl) : '',
+                                                TG: record.tg !== undefined && record.tg !== null ? String(record.tg) : '',
+                                                AST: record.ast !== undefined && record.ast !== null ? String(record.ast) : '',
+                                                ALT: record.alt !== undefined && record.alt !== null ? String(record.alt) : '',
+                                                Alb: record.alb !== undefined && record.alb !== null ? String(record.alb) : '',
+                                              }
+                                            });
+                                          }}
+                                          title="點擊此報告日期, 即可將該次生化數值與體重帶入上方的輸入欄位"
+                                          className="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer focus:outline-none transition-all text-left inline-flex items-center gap-1"
+                                        >
+                                          {record.date} 📥
+                                        </button>
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-semibold">{record.ac || '--'}</span>
+                                        {prev && getTrend(record.ac, prev.ac, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-semibold">{record.hba1c || '--'}</span>
+                                        {prev && getTrend(record.hba1c, prev.hba1c, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-semibold">{record.bun || '--'}</span>
+                                        {prev && getTrend(record.bun, prev.bun, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-semibold">{record.cr || '--'}</span>
+                                        {prev && getTrend(record.cr, prev.cr, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="font-semibold">{record.egfr || '--'}</span>
+                                        {prev && getTrend(record.egfr, prev.egfr, false)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.tg || '--'}</span>
+                                        {prev && getTrend(record.tg, prev.tg, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.hdl || '--'}</span>
+                                        {prev && getTrend(record.hdl, prev.hdl, false)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.ldl || '--'}</span>
+                                        {prev && getTrend(record.ldl, prev.ldl, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.tc || '--'}</span>
+                                        {prev && getTrend(record.tc, prev.tc, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.ast || '--'}</span>
+                                        {prev && getTrend(record.ast, prev.ast, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.alt || '--'}</span>
+                                        {prev && getTrend(record.alt, prev.alt, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span>{record.uricAcid || '--'}</span>
+                                        {prev && getTrend(record.uricAcid, prev.uricAcid, true)}
+                                      </td>
+                                      <td className="px-3 py-2.5 font-mono text-slate-600">
+                                        {prev ? getBpTrend(record.bp, prev.bp) : (record.bp || '--')}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-center">
+                                        <button 
+                                          type="button"
+                                          onClick={() => {
+                                            const newBiochemHistory = (state.monitoring.biochemHistory || []).filter(h => h.date !== record.date && h.id !== record.id);
+                                            const newLegacyHistory = state.monitoring.history.filter(h => h.date !== record.date);
+                                            if (clickedBiochemHistoryDate === record.date) {
+                                              setClickedBiochemHistoryDate(null);
+                                            }
+                                            setState({
+                                              ...state,
+                                              monitoring: {
+                                                ...state.monitoring,
+                                                biochemHistory: newBiochemHistory,
+                                                history: newLegacyHistory
+                                              }
+                                            });
+                                          }}
+                                          className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                                          title="刪除此生化紀錄"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex-1 space-y-2">
+                      <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <ClipboardList className="w-4 h-4 text-blue-500" />
+                        數據備註與分析
+                      </label>
+                      <textarea 
+                        value={state.biochemistryNotes || ''} 
+                        onChange={e => setState({...state, biochemistryNotes: e.target.value})}
+                        placeholder="輸入生化數值相關分析或備註..."
+                        rows={4}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                      ></textarea>
+                    </div>
+
+                    <div className="w-full md:w-[500px] grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* CKD-EPI 2021 Calculator */}
+                      <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 flex items-center gap-1">
+                            <Calculator className="w-3.5 h-3.5 text-blue-600" />
+                            CKD-EPI 2021 計算器
+                          </h4>
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-slate-500">Cr:</span>
+                            <span className="font-bold text-slate-700">{state.biochemistry.Cr || '--'} mg/dL</span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-slate-500">年齡/性別:</span>
+                            <span className="font-bold text-slate-700">{calculateAge(state.clientHx.birthday)}歲 / {state.clientHx.gender}</span>
+                          </div>
+                          <div className="pt-1.5 border-t border-slate-50">
+                            <div className="flex justify-between items-center mb-1.5">
+                              <span className="text-[11px] font-bold text-blue-600">預估 GFR:</span>
+                              <span className="text-base font-black text-blue-700">{calculateCKDEPI2021() || '--'}</span>
+                            </div>
+                            <button 
+                              onClick={updateEGFR}
+                              className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-colors shadow-xs"
+                            >
+                              自動填入 eGFR
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-slate-400 leading-tight">
+                          公式: 142 x min(Scr/κ, 1)ᵅ x max(Scr/κ, 1)⁻¹.²⁰⁰ x 0.9938ᵃᵍᵉ x 1.012 [女]
+                        </p>
+                        </div>
+                      </div>
+
+                      {/* AST / ALT Ratio & Liver Injury Evaluation */}
+                      <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-sm space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <h4 className="text-xs font-black text-slate-800 flex items-center gap-1">
+                            <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                            AST/ALT 肝受損評估
+                          </h4>
+                        </div>
+                        {(() => {
+                          const astNum = parseFloat(state.biochemistry.AST);
+                          const altNum = parseFloat(state.biochemistry.ALT);
+                          const hasAst = !isNaN(astNum) && astNum > 0;
+                          const hasAlt = !isNaN(altNum) && altNum > 0;
+                          const ratio = hasAst && hasAlt ? (astNum / altNum).toFixed(2) : null;
+                          const ratioVal = ratio ? parseFloat(ratio) : null;
+
+                          return (
+                            <div className="space-y-1.5 text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">AST (GOT):</span>
+                                <span className="font-bold text-slate-700">{hasAst ? `${astNum} U/L` : '--'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">ALT (GPT):</span>
+                                <span className="font-bold text-slate-700">{hasAlt ? `${altNum} U/L` : '--'}</span>
+                              </div>
+                              <div className="pt-1.5 border-t border-slate-50 flex justify-between items-center">
+                                <span className="font-bold text-emerald-700">AST / ALT 比值:</span>
+                                <span className="text-base font-black text-emerald-800">{ratio ?? '--'}</span>
+                              </div>
+                              {ratioVal !== null && (
+                                <div className="text-[10px] font-bold p-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded leading-tight">
+                                  {ratioVal >= 2
+                                    ? '⚠️ Ratio ≥ 2：高度懷疑酒精性肝病 (常見約2:1)'
+                                    : ratioVal < 1
+                                    ? '🔍 Ratio < 1：脂肪肝、病毒性肝炎較常見'
+                                    : 'ℹ️ Ratio 1~2：需結合臨床綜合評估'}
+                                </div>
+                              )}
+                              {hasAlt && (
+                                <div className="text-[9px] text-slate-600 leading-tight">
+                                  {altNum > 500 ? (
+                                    <span className="text-red-600 font-bold">⚠️ ALT &gt; 500：屬急性肝損傷，請立即就醫檢查</span>
+                                  ) : altNum >= 100 ? (
+                                    <span className="text-amber-700 font-bold">⚡ ALT 100–300：中度上升（評估肝炎/藥物/酒精/代謝）</span>
+                                  ) : altNum > 40 ? (
+                                    <span className="text-blue-700 font-bold">🔍 ALT 40–100：輕度上升（常見脂肪肝/肥胖/胰島素阻抗）</span>
+                                  ) : (
+                                    <span className="text-emerald-600 font-bold">✓ ALT 正常範圍 (≤40 U/L)</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 shadow-sm mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setBiochemRefExpanded(!biochemRefExpanded)}
+                      className="w-full flex items-center justify-between text-slate-800 font-bold hover:text-slate-900 cursor-pointer text-left focus:outline-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-3.5 bg-blue-600 rounded-full" />
+                        <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">生化數值參考/目標</span>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
+                        {biochemRefExpanded ? '收合 ▲' : '展開 ▼'}
+                      </span>
+                    </button>
+                    
+                    {biochemRefExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="space-y-4 pt-3 border-t border-slate-200 mt-2"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="p-3 bg-white rounded-lg border border-slate-200 text-[11px] leading-relaxed shadow-sm">
+                          <div className="font-bold text-blue-700 mb-1 border-b border-blue-50 pb-1">DM參考值 (正常 | 前期 | 確診)</div>
+                          <div className="grid grid-cols-1 gap-y-1">
+                            <div><span className="text-slate-500">AC:</span> &lt;110 | 110-125 | ≧126</div>
+                            <div><span className="text-slate-500">PC:</span> &lt;140 | 140-199 | &gt;200</div>
+                            <div><span className="text-slate-500">A1c:</span> 4-5.6 | 5.7-6.4 | &gt;6.5%</div>
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-[11px] leading-relaxed shadow-sm">
+                          <div className="font-bold text-green-700 mb-1 border-b border-green-50 pb-1">血脂 ASCVD 預防目標 (LDL | Non-HDL)</div>
+                          <div className="space-y-1">
+                            <div><span className="text-slate-700 font-bold underline">預防:</span> (3–10%): &lt;100 | &lt;130; (≥10%): &lt;70 | &lt;100</div>
+                            <div><span className="text-slate-700 font-bold underline">已病:</span> (非極高): &lt;70 | &lt;100; (極高): &lt;55 | &lt;85</div>
+                            <div className="text-[10px] text-slate-500 pt-1">TG &gt; 400 時 LDL 計算誤差大，建議看 Non-HDL</div>
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-[11px] leading-relaxed shadow-sm">
+                          <div className="font-bold text-orange-700 mb-1 border-b border-orange-50 pb-1">LDL-C 分級</div>
+                          <div className="space-y-1">
+                            <div><span className="text-slate-700 font-medium underline">LDL:</span> &lt;100(理想) | 130-159 | 160-189(高) | ≧190</div>
+                          </div>
+                        </div> {/* 👈 1. 補上：關閉 LDL-C 卡片 */}
+                      </div>   {/* 👈 2. 補上：關閉 <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> */}
+                    </motion.div>
+                  )}
+                </div>     {/* 👈 對應 <div className="bg-slate-50 border..."> */}
+              </div>       {/* 👈 對應 <div className="p-6 space-y-6"> */}
+            </section>
+
+              {/* Clinical */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Stethoscope className="w-5 h-5 text-blue-600" />
+                    臨床狀況 (Clinical)
+                  </h2>
+                  <button 
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white rounded-lg hover:bg-blue-700 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSaving ? '儲存中...' : '儲存紀錄'}
+                  </button>
+                </div>
+                <div className="p-6 space-y-6">
+                  <div className="space-y-4">
+                    <label className="text-sm font-medium text-slate-700">既往病史 (Medical Hx / Surgical Hx)</label>
+                    <div className="flex flex-wrap gap-4">
+                      {['DM', '腎臟病', '心血管', 'HTN', 'Gout', 'hyperuricemia', 'Kidney stones', 'GERD', '高血脂', 'Cancer'].map(item => {
+                        const isChecked = state.clinical.medicalHx.includes(item) ||
+                          (item === 'GERD' && state.clinical.medicalHx.includes('GORD')) ||
+                          (item === 'Kidney stones' && state.clinical.medicalHx.includes('腎結石'));
+
+                        return (
+                          <div key={item} className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer group">
+                              <input 
+                                type="checkbox" 
+                                checked={isChecked}
+                                onChange={e => {
+                                  let newHx: string[];
+                                  if (e.target.checked) {
+                                    newHx = [...state.clinical.medicalHx.filter(h => {
+                                      if (item === 'GERD' && h === 'GORD') return false;
+                                      if (item === 'Kidney stones' && h === '腎結石') return false;
+                                      return h !== item;
+                                    }), item];
+                                  } else {
+                                    newHx = state.clinical.medicalHx.filter(h => {
+                                      if (item === 'GERD' && (h === 'GERD' || h === 'GORD')) return false;
+                                      if (item === 'Kidney stones' && (h === 'Kidney stones' || h === '腎結石')) return false;
+                                      return h !== item;
+                                    });
+                                  }
+                                  const updatedClinical = { ...state.clinical, medicalHx: newHx };
+                                  if (item === '腎臟病' && !e.target.checked) {
+                                  updatedClinical.kidneyStage = '';
+                                }
+                                setState({...state, clinical: updatedClinical});
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                            />
+                            <span className="text-sm text-slate-600 group-hover:text-slate-900 font-medium">{item}</span>
+                          </label>
+                          {item === '腎臟病' && state.clinical.medicalHx.includes('腎臟病') && (
+                            <select 
+                              value={state.clinical.kidneyStage || ''}
+                              onChange={e => {
+                                setState({
+                                  ...state, 
+                                  clinical: { ...state.clinical, kidneyStage: e.target.value }
+                                });
+                              }}
+                              className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">選擇期數</option>
+                              <option value="第一期">第一期</option>
+                              <option value="第二期">第二期</option>
+                              <option value="第三期">第三期</option>
+                              <option value="第四期">第四期</option>
+                              <option value="第五期">第五期</option>
+                            </select>
+                          )}
+                        </div>
+                      );        // 👈 補上 map 內 return 的閉合括號與分號
+                    })}
+                  </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-xs font-semibold text-slate-500">其他 (Other Medical Hx):</label>
+                      <textarea 
+                        rows={3}
+                        placeholder="請輸入其他既往病史、手術史或詳細補充說明..." 
+                        value={state.clinical.medicalHxOther || ''}
+                        onChange={e => {
+                          setState({...state, clinical: {...state.clinical, medicalHxOther: e.target.value}});
+                        }}
+                        className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white resize-y min-h-[80px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <label className="text-sm font-medium text-slate-700 font-bold">腸胃狀況</label>
+                    <div className="flex flex-wrap gap-4">
+                      {['無', '吞嚥困難', '厭食', '噁心', '嘔吐', '腹瀉', '便秘'].map(item => (
+                        <label key={item} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={state.clinical.giStatus.includes(item)}
+                            onChange={e => {
+                              let newStatus = [...(state.clinical.giStatus || [])];
+                              let newStatusOther = state.clinical.giStatusOther || '';
+                              let newStoolStatus = state.clinical.stoolStatus || '';
+                              if (item === '無') {
+                                if (e.target.checked) {
+                                  newStatus = ['無'];
+                                  newStatusOther = '';
+                                } else {
+                                  newStatus = [];
+                                  newStoolStatus = '';
+                                }
+                              } else {
+                                if (e.target.checked) {
+                                  newStatus = [...newStatus.filter(x => x !== '無'), item];
+                                } else {
+                                  newStatus = newStatus.filter(x => x !== item);
+                                }
+                              }
+                              setState({
+                                ...state, 
+                                clinical: {
+                                  ...state.clinical, 
+                                  giStatus: newStatus,
+                                  giStatusOther: newStatusOther,
+                                  stoolStatus: newStoolStatus
+                                }
+                              });
+                            }}
+                            className="w-4 h-4 text-blue-600 rounded" 
+                          />
+                          <span className="text-sm text-slate-600 font-medium">{item}</span>
+                        </label>
+                      ))}
+                      <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                        <span className="text-xs text-slate-500">其他:</span>
+                        <input 
+                          type="text" 
+                          placeholder="請輸入其他腸胃狀況..."
+                          value={state.clinical.giStatusOther || ''}
+                          onChange={e => {
+                            let newStatus = [...(state.clinical.giStatus || [])].filter(x => x !== '無');
+                            setState({
+                              ...state, 
+                              clinical: {
+                                ...state.clinical, 
+                                giStatus: newStatus,
+                                giStatusOther: e.target.value
+                              }
+                            });
+                          }}
+                          className="w-full px-3 py-1 text-sm rounded border border-slate-200"
+                        />
+                      </div>
+                    </div>
+
+                    {state.clinical.giStatus.includes('無') && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 bg-slate-50 border border-slate-200/60 rounded-xl space-y-2 mt-2"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                          <label className="text-xs font-bold text-slate-700">排便狀況</label>
+                        </div>
+                        <input 
+                          type="text"
+                          placeholder="請輸入排便狀況 (例如：每日一次、偏軟、正常等)..."
+                          value={state.clinical.stoolStatus || ''}
+                          onChange={e => setState({
+                            ...state,
+                            clinical: {
+                              ...state.clinical,
+                              stoolStatus: e.target.value
+                            }
+                          })}
+                          className="w-full max-w-md px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all"
+                        />
+                      </motion.div>
+                    )}
+                  </div>
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <Pill className="w-4 h-4 text-blue-600" />
+                        目前服用藥物 (Current Medications)
+                      </label>
+                      <span className="text-xs text-slate-400 font-medium">
+                        ※ 可搜尋藥物資料庫快速新增，點擊藥物標籤可跳轉至衛教資訊
+                      </span>
+                    </div>
+
+                    {/* Search and Add from Database */}
+                    <div className="relative">
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <Search className="h-4 w-4 text-slate-400" />
+                        </div>
+                        <input 
+                          type="text"
+                          value={medSearchInput}
+                          onChange={e => {
+                            setMedSearchInput(e.target.value);
+                            setIsMedDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsMedDropdownOpen(true)}
+                          placeholder="搜尋藥物資料庫 (例如：Lipitor, Glucophage, 降血壓...)"
+                          className="w-full pl-9 pr-8 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
+                        />
+                        {medSearchInput && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMedSearchInput('');
+                              setIsMedDropdownOpen(false);
+                            }}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown Suggestions */}
+                      {isMedDropdownOpen && medSearchInput.trim() !== '' && (
+                        <div className="absolute z-30 left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-slate-200 max-h-60 overflow-y-auto divide-y divide-slate-100">
+                          {MEDICATIONS.filter(med => {
+                            const q = medSearchInput.toLowerCase().trim();
+                            return med.name.toLowerCase().includes(q) ||
+                              (med.genericName && med.genericName.toLowerCase().includes(q)) ||
+                              med.indication.toLowerCase().includes(q);
+                          }).length > 0 ? (
+                            MEDICATIONS.filter(med => {
+                              const q = medSearchInput.toLowerCase().trim();
+                              return med.name.toLowerCase().includes(q) ||
+                                (med.genericName && med.genericName.toLowerCase().includes(q)) ||
+                                med.indication.toLowerCase().includes(q);
+                            }).map((med, idx) => {
+                              const cleanName = getCleanMedName(med.name);
+                              const medFormatted = `${cleanName} (${med.indication})`;
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    const currentMeds = state.clinical.medications || '';
+                                    const updated = currentMeds.trim()
+                                      ? `${currentMeds.trim()}\n${medFormatted}`
+                                      : medFormatted;
+                                    setState({
+                                      ...state,
+                                      clinical: { ...state.clinical, medications: updated }
+                                    });
+                                    setMedSearchInput('');
+                                    setIsMedDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50/80 transition-colors flex items-center justify-between group cursor-pointer"
+                                >
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                                      <span>{med.name}</span>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 font-bold">
+                                        {med.indication}
+                                      </span>
+                                    </div>
+                                    {med.genericName && (
+                                      <div className="text-xs text-slate-400 mt-0.5">{med.genericName} • 劑量：{med.dosage}</div>
+                                    )}
+                                  </div>
+                                  <span className="text-xs font-bold text-blue-600 bg-blue-100 group-hover:bg-blue-600 group-hover:text-white px-2.5 py-1 rounded-lg transition-colors shrink-0 flex items-center gap-1">
+                                    <Plus className="w-3.5 h-3.5" />
+                                    新增
+                                  </span>
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="p-4 text-center text-xs text-slate-400">
+                              未找到與「{medSearchInput}」符合的資料庫藥物
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Display Matched Medication Badges for direct jump to Medication Info */}
+                    {(() => {
+                      const currentMedsText = state.clinical.medications || '';
+                      const matchedMeds = MEDICATIONS.filter(med => {
+                        const cleanName = getCleanMedName(med.name);
+                        return cleanName && currentMedsText.toLowerCase().includes(cleanName.toLowerCase());
+                      });
+
+                      if (matchedMeds.length === 0) return null;
+
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 p-2.5 bg-blue-50/40 rounded-xl border border-blue-100/80">
+                          <span className="text-xs font-bold text-slate-600 flex items-center gap-1 shrink-0">
+                            <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                            已關聯資料庫藥物 (點擊跳轉衛教頁面)：
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {matchedMeds.map((med, idx) => {
+                              const cleanName = getCleanMedName(med.name);
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    setMedicationSearchQuery(cleanName);
+                                    setActiveTab('medications');
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-blue-200 text-blue-900 rounded-xl text-xs font-bold shadow-xs hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all group cursor-pointer"
+                                  title={`點擊跳轉查看 ${cleanName} 的藥物衛教`}
+                                >
+                                  <span>{med.name}</span>
+                                  <span className="text-[10px] text-blue-600 group-hover:text-blue-100 font-semibold bg-blue-50 group-hover:bg-blue-700 px-1.5 py-0.2 rounded border border-blue-100 group-hover:border-blue-500">
+                                    {med.indication}
+                                  </span>
+                                  <span className="text-[10px] text-blue-600 group-hover:text-white underline ml-0.5 flex items-center gap-0.5 font-bold">
+                                    藥物資訊
+                                    <ExternalLink className="w-3 h-3" />
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Editable Text Area (保留可以填寫與修改的區域) */}
+                    <textarea 
+                      value={state.clinical.medications || ''}
+                      onChange={e => setState({...state, clinical: {...state.clinical, medications: e.target.value}})}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 h-24 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white"
+                      placeholder="列出目前服用的藥物，可自由填寫、修改或輸入用法劑量 (例如：Lipitor (高膽固醇、心血管預防) 10mg QD)..."
+                   ></textarea>
+                 </div> {/* 👈 對應藥物區塊的 <div> */}
+               </div> {/* 👈 對應整張卡片內容的 <div className="p-6 space-y-6"> */}
+             </section>
+
+              {/* Diet History */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Utensils className="w-5 h-5 text-blue-600" />
+                    飲食史 (Diet Hx)
+                  </h2>
+                  <button 
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 active:bg-blue-700 disabled:opacity-50 text-white rounded-lg hover:bg-blue-700 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSaving ? '儲存中...' : '儲存紀錄'}
+                  </button>
+                </div>
+                <div className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {/* Left: Diet basics (type, preference, and meals) */}
+                    <div className="md:col-span-2 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700">飲食型態</label>
+                          <select value={state.diet.type || ''} onChange={e => setState({...state, diet: {...state.diet, type: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200">
+                            <option>口服</option>
+                            <option>特殊型態飲食</option>
+                            <option>管灌</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700">飲食傾向</label>
+                          <select value={state.diet.preference || ''} onChange={e => setState({...state, diet: {...state.diet, preference: e.target.value}})} className="w-full px-3 py-2 rounded-lg border border-slate-200">
+                            <option>葷</option>
+                            <option>素</option>
+                            <option>早素</option>
+                            <option>初一.十五素</option>
+                            <option>蛋奶素</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 pt-1">
+                        <label className="text-sm font-medium text-slate-700 font-bold">餐次</label>
+                        <div className="flex flex-wrap gap-x-4 gap-y-2">
+                          {['早餐', '早點', '午餐', '午點', '晚餐', '晚點'].map(item => (
+                            <label key={item} className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                checked={state.diet.meals?.includes(item)} 
+                                onChange={e => {
+                                  const newMeals = e.target.checked 
+                                    ? [...(state.diet.meals || []), item]
+                                    : (state.diet.meals || []).filter(m => m !== item);
+                                  setState({...state, diet: {...state.diet, meals: newMeals}});
+                                }}
+                                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                              />
+                              <span className="text-sm text-slate-600 font-medium">{item}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-xs text-slate-500 shrink-0">其他餐次或說明:</span>
+                          <input 
+                            type="text" 
+                            placeholder="如：自定義餐次、宵夜、點心..."
+                            value={state.diet.mealsOther || ''}
+                            onChange={e => setState({...state, diet: {...state.diet, mealsOther: e.target.value}})}
+                            className="w-full px-3 py-1.5 text-sm rounded border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Recommended calories */}
+                    <div className="md:col-span-2 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-full">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700">建議熱量 (Wt+運動)</label>
+                          <div className="px-3 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 h-[104px] flex flex-col justify-center py-2 shadow-xs">
+                            <div className="text-sm font-bold leading-none">{recommendedKcal} kcal/d</div>
+                            {recommendedMacros && (
+                              <div className="flex gap-2.5 mt-1.5 text-[10px] font-medium text-blue-600/80 leading-none">
+                                <span>醣: {recommendedMacros.carbs}g</span>
+                                <span>蛋: {recommendedMacros.protein}g</span>
+                                <span>脂: {recommendedMacros.fat}g</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium text-slate-700">建議熱量 (Harris Benedict)</label>
+                          <div className="px-3 py-2 bg-indigo-50/70 text-indigo-900 rounded-lg border border-indigo-100 h-[104px] flex flex-col justify-center gap-1 shadow-xs">
+                            {recommendedHBKcal.err ? (
+                              <div className="text-[10px] text-slate-500 font-medium leading-tight">{recommendedHBKcal.err}</div>
+                            ) : (
+                              <div className="flex justify-between items-baseline leading-none">
+                                <span className="text-[9px] text-indigo-600 font-mono">BEE: {recommendedHBKcal.bee} kcal</span>
+                                <span className="text-xs font-black text-indigo-700">{recommendedHBKcal.total} <span className="text-[9px] font-bold">kcal/d</span></span>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-indigo-100/50">
+                              <div className="space-y-0.5">
+                                <span className="text-[8px] text-slate-400 font-bold block">活動因子</span>
+                                <select 
+                                  value={state.guidelineSelections.hbActivity !== undefined ? state.guidelineSelections.hbActivity : 1.3} 
+                                  onChange={e => setState({
+                                    ...state, 
+                                    guidelineSelections: {
+                                      ...state.guidelineSelections,
+                                      hbActivity: parseFloat(e.target.value)
+                                    }
+                                  })}
+                                  className="w-full text-[9px] px-1 py-0.5 rounded border border-slate-200 bg-white"
+                                >
+                                  {HB_ACTIVITY_OPTIONS.map(opt => (
+                                    <option key={opt.label} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[8px] text-slate-400 font-bold block">壓力因子</span>
+                                <select 
+                                  value={state.guidelineSelections.hbStress !== undefined ? state.guidelineSelections.hbStress : 1.0} 
+                                  onChange={e => setState({
+                                    ...state, 
+                                    guidelineSelections: {
+                                      ...state.guidelineSelections,
+                                      hbStress: parseFloat(e.target.value)
+                                    }
+                                  })}
+                                  className="w-full text-[9px] px-1 py-0.5 rounded border border-slate-200 bg-white"
+                                >
+                                  {HB_STRESS_OPTIONS.map(opt => (
+                                    <option key={opt.label} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">目前飲水量 (ml/d)</label>
+                      <input 
+                        type="number" 
+                        value={state.diet.currentWater || ''} 
+                        onChange={e => setState({...state, diet: {...state.diet, currentWater: e.target.value}})} 
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200" 
+                        placeholder="例如：1500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">飲水量描述 (選填)</label>
+                      <input 
+                        type="text" 
+                        value={state.diet.currentWaterNotes || ''} 
+                        onChange={e => setState({...state, diet: {...state.diet, currentWaterNotes: e.target.value}})} 
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all" 
+                        placeholder="飲水（如：水、茶、手搖飲）..."
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-slate-700">非處方中藥或保健品</label>
+                      <input 
+                        type="text" 
+                        value={state.diet.supplements || ''} 
+                        onChange={e => setState({...state, diet: {...state.diet, supplements: e.target.value}})} 
+                        placeholder="例如：魚油、葉黃素、中藥粉..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-slate-700">飲食過敏</label>
+                    <div className="flex flex-wrap gap-4">
+                      {['無', '花生', '蝦', '蟹', '牛奶'].map(item => (
+                        <label key={item} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={state.diet.allergies?.includes(item)} 
+                            onChange={e => {
+                              let newAllergies = [...(state.diet.allergies || [])];
+                              let newAllergiesOther = state.diet.allergiesOther || '';
+                              if (item === '無') {
+                                if (e.target.checked) {
+                                  newAllergies = ['無'];
+                                  newAllergiesOther = '';
+                                } else {
+                                  newAllergies = [];
+                                }
+                              } else {
+                                if (e.target.checked) {
+                                  newAllergies = [...newAllergies.filter(x => x !== '無'), item];
+                                } else {
+                                  newAllergies = newAllergies.filter(x => x !== item);
+                                }
+                              }
+                              setState({
+                                ...state, 
+                                diet: {
+                                  ...state.diet, 
+                                  allergies: newAllergies,
+                                  allergiesOther: newAllergiesOther
+                                }
+                              });
+                            }}
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                          />
+                          <span className="text-sm text-slate-600 font-medium">{item}</span>
+                        </label>
+                      ))}
+                      <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                        <span className="text-xs text-slate-400">其他:</span>
+                        <input 
+                          type="text" 
+                          placeholder="其他過敏項目..."
+                          value={state.diet.allergiesOther || ''}
+                          onChange={e => setState({...state, diet: {...state.diet, allergiesOther: e.target.value}})}
+                          className="w-full px-3 py-1 text-sm rounded border border-slate-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pt-2">
+                    <label className="text-sm font-medium text-slate-700 font-bold">飲食史備註</label>
+                    <textarea 
+                      value={state.diet.notes || ''}
+                      onChange={e => setState({...state, diet: {...state.diet, notes: e.target.value}})}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 h-24"
+                      placeholder="填寫關於飲食生活習慣、外食頻率等備註..."
+                    ></textarea>
+                  </div>
+
+                  {/* 便當油脂估計備註 */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setBentoRefExpanded(!bentoRefExpanded)}
+                      className="w-full flex items-center justify-between text-amber-800 font-bold border-b border-amber-200 pb-2 mb-2 hover:text-amber-900 cursor-pointer text-left focus:outline-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Info className="w-4 h-4 text-amber-700" />
+                        <span className="text-sm text-amber-850">便當油脂與食材估計參考</span>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">
+                        {bentoRefExpanded ? '收合 ▲' : '展開 ▼'}
+                      </span>
+                    </button>
+                    
+                    {bentoRefExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1"
+                      >
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
+                          <span className="text-[11px] font-bold text-amber-600 uppercase">一般蔬菜</span>
+                          <span className="text-xs text-amber-900 font-medium tracking-tight">每樣蔬菜：0.5-1 ex</span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
+                          <span className="text-[11px] font-bold text-amber-600 uppercase">吸油食材</span>
+                          <span className="text-xs text-amber-900 font-medium tracking-tight">茄子、苦瓜、豆皮、干絲：1-1.5 以上</span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
+                          <span className="text-[11px] font-bold text-amber-600 uppercase">炸物/勾芡</span>
+                          <span className="text-xs text-amber-900 font-bold tracking-tight text-red-700">排骨、糖醋、三杯：1.5-2 以上</span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
+                          <span className="text-[11px] font-bold text-amber-600 uppercase">雞胸肉估計</span>
+                          <span className="text-xs text-amber-900 font-medium tracking-tight">全聯一片 100-150g：約 3.5-5 ex 肉類</span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
+                          <span className="text-[11px] font-bold text-amber-700 uppercase">八方招牌水餃 (10顆)</span>
+                          <span className="text-[11.5px] text-amber-950 font-medium tracking-tight leading-relaxed">
+                            160g白飯 + 33ml油 + 1片雞胸肉 + 2.5g鹽巴
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
+                          <span className="text-[11px] font-bold text-amber-700 uppercase">八方招牌鍋貼 (10顆)</span>
+                          <span className="text-[11.5px] text-amber-950 font-medium tracking-tight leading-relaxed">
+                            160g白飯 + 50ml油 + 1/3片雞胸肉 + 2g鹽巴
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
+                          <span className="text-[11px] font-bold text-amber-700 uppercase">梁社漢排骨</span>
+                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
+                            130g
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
+                          <span className="text-[11px] font-bold text-amber-700 uppercase">梁社漢炸雞排</span>
+                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
+                            230g
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* 飲食記錄日期與同步 (Diet Record Date & History Sync) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-bold text-slate-700 flex items-center gap-1">
+                          <Calendar className="w-4 h-4 text-blue-600" />
+                          <span>飲食紀錄日期：</span>
+                        </label>
+                        <input 
+                          type="date"
+                          value={state.diet.dietDate || ''}
+                          onChange={e => setState({
+                            ...state,
+                            diet: {
+                              ...state.diet,
+                              dietDate: e.target.value
+                            }
+                          })}
+                          className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const selectedDate = state.diet.dietDate || new Date().toISOString().split('T')[0];
+                          let updatedHistory = [...(state.diet.dietHistory || [])];
+                          
+                          if (clickedDietHistoryDate && clickedDietHistoryDate !== selectedDate) {
+                            updatedHistory = updatedHistory.filter(h => h.date !== clickedDietHistoryDate);
+                          }
+
+                          const existingIdx = updatedHistory.findIndex(h => h.date === selectedDate);
+                          const newRecord = {
+                            id: Date.now().toString() + '-diet',
+                            date: selectedDate,
+                            logs: [...state.diet.logs],
+                            intakeNotes: state.diet.intakeNotes || ''
+                          };
+
+                          if (existingIdx > -1) {
+                            updatedHistory[existingIdx] = newRecord;
+                          } else {
+                            updatedHistory.push(newRecord);
+                          }
+
+                          // Sort history descending by date
+                          updatedHistory.sort((a, b) => b.date.localeCompare(a.date));
+
+                          setState({
+                            ...state,
+                            diet: {
+                              ...state.diet,
+                              dietHistory: updatedHistory
+                            }
+                          });
+                          setClickedDietHistoryDate(selectedDate);
+                          alert(`已儲存 ${selectedDate} 的飲食紀錄與備註至歷史紀錄。`);
+                        }}
+                        className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Save className="w-3.5 h-3.5" /> 儲存/同步此日飲食至歷史紀錄
+                      </button>
+                    </div>
+
+                    {/* Collapsible Diet History List */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setDietHistoryExpanded(!dietHistoryExpanded)}
+                        className="w-full flex items-center justify-between text-slate-700 font-bold hover:text-slate-900 cursor-pointer text-left focus:outline-none"
+                      >
+                        <div className="flex items-center gap-2 text-xs">
+                          <History className="w-4 h-4 text-blue-600" />
+                          <span>飲食攝取歷史紀錄 (共 {(state.diet.dietHistory || []).length} 筆)</span>
+                        </div>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
+                          {dietHistoryExpanded ? '收合 ▲' : '展開 ▼'}
+                        </span>
+                      </button>
+
+                      {dietHistoryExpanded && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="pt-2"
+                        >
+                          {(state.diet.dietHistory || []).length === 0 ? (
+                            <div className="text-center py-4 text-slate-400 text-xs italic">
+                              尚無已儲存的飲食歷史紀錄
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto rounded-lg border border-slate-100 bg-white">
+                              <table className="w-full text-xs text-left text-slate-700">
+                                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
+                                  <tr>
+                                    <th className="px-3 py-2">紀錄日期</th>
+                                    <th className="px-3 py-2 text-right">熱量 (kcal)</th>
+                                    <th className="px-3 py-2 text-right">醣 (g)</th>
+                                    <th className="px-3 py-2 text-right">蛋 (g)</th>
+                                    <th className="px-3 py-2 text-right">脂 (g)</th>
+                                    <th className="px-3 py-2">飲食攝取備註</th>
+                                    <th className="px-3 py-2 text-center">操作</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {(state.diet.dietHistory || []).map((record) => {
+                                    // Calculate dynamic totals for this record
+                                    const recTotals = (record.logs || []).reduce((acc, log) => {
+                                      const factor = (log.qty || 0);
+                                      return {
+                                        carbs: acc.carbs + ((log.carbs || 0) * factor),
+                                        protein: acc.protein + ((log.protein || 0) * factor),
+                                        fat: acc.fat + ((log.fat || 0) * factor),
+                                        kcal: acc.kcal + ((log.kcal || 0) * factor)
+                                      };
+                                    }, { carbs: 0, protein: 0, fat: 0, kcal: 0 });
+
+                                    return (
+                                      <tr key={record.id || record.date} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-3 py-2 font-mono">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setClickedDietHistoryDate(record.date);
+                                              setState({
+                                                ...state,
+                                                diet: {
+                                                  ...state.diet,
+                                                  dietDate: record.date,
+                                                  logs: record.logs || [],
+                                                  intakeNotes: record.intakeNotes || ''
+                                                }
+                                              });
+                                              alert(`已載入 ${record.date} 的飲食紀錄。`);
+                                            }}
+                                            title="點擊此日期, 即可將該次飲食與備註帶入目前的編輯狀態"
+                                            className="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer focus:outline-none transition-all text-left inline-flex items-center gap-1"
+                                          >
+                                            {record.date} 📥
+                                          </button>
+                                        </td>
+                                        <td className="px-3 py-2 text-right font-semibold text-slate-800">{recTotals.kcal.toFixed(0)}</td>
+                                        <td className="px-3 py-2 text-right text-slate-600">{recTotals.carbs.toFixed(1)}</td>
+                                        <td className="px-3 py-2 text-right text-slate-600">{recTotals.protein.toFixed(1)}</td>
+                                        <td className="px-3 py-2 text-right text-slate-600">{recTotals.fat.toFixed(1)}</td>
+                                        <td className="px-3 py-2 text-slate-500 truncate max-w-[120px]" title={record.intakeNotes}>
+                                          {record.intakeNotes || '--'}
+                                        </td>
+                                        <td className="px-3 py-2 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (confirm('確定要刪除此筆飲食歷史紀錄嗎？')) {
+                                                const updatedHist = (state.diet.dietHistory || []).filter(h => h.id !== record.id && h.date !== record.date);
+                                                setState({
+                                                  ...state,
+                                                  diet: {
+                                                    ...state.diet,
+                                                    dietHistory: updatedHist
+                                                  }
+                                                });
+                                              }
+                                            }}
+                                            className="p-1 text-red-500 hover:bg-red-50 rounded transition-all cursor-pointer"
+                                            title="刪除紀錄"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 飲食攝取營養素統計 (Diet Intake Nutrient Summary) */}
+                  {(() => {
+                    const totalKval = dietTotals.kcal;
+                    const carbsPct = totalKval > 0 ? ((dietTotals.carbs * 4) / totalKval) * 100 : 0;
+                    const proteinPct = totalKval > 0 ? ((dietTotals.protein * 4) / totalKval) * 100 : 0;
+                    const fatPct = totalKval > 0 ? ((dietTotals.fat * 9) / totalKval) * 100 : 0;
+                    return (
+                      <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5 space-y-4 shadow-sm">
+                        <div className="flex justify-between items-center border-b border-blue-100/80 pb-3">
+                          <span className="text-sm font-black text-blue-800 flex items-center gap-1.5">
+                            <Activity className="w-4 h-4 text-blue-600" />
+                            目前飲食攝取總計
+                          </span>
+                          <span className="text-xs text-slate-500 font-medium">
+                            熱量以三大營養素之加權計算 (4/4/9 kcal/g)
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {/* 總熱量 */}
+                          <div className="bg-white rounded-xl p-3 border border-blue-50 shadow-sm flex flex-col justify-center">
+                            <span className="text-xs font-semibold text-slate-500 mb-1">總熱量</span>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-lg sm:text-xl font-black text-blue-900">{dietTotals.kcal.toFixed(0)}</span>
+                              <span className="text-xs font-bold text-slate-500">kcal</span>
+                            </div>
+                          </div>
+
+                          {/* 總醣類 */}
+                          <div className="bg-white rounded-xl p-3 border border-blue-50 shadow-sm flex flex-col justify-center">
+                            <span className="text-xs font-semibold text-slate-500 mb-1">總醣類</span>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-lg sm:text-xl font-black text-blue-900">{dietTotals.carbs.toFixed(1)}</span>
+                              <span className="text-xs font-bold text-slate-500">g</span>
+                            </div>
+                            <span className="text-[10px] text-blue-600 font-medium mt-1">
+                              佔 {carbsPct.toFixed(1)}% 熱量
+                            </span>
+                          </div>
+
+                          {/* 總蛋白質 */}
+                          <div className="bg-white rounded-xl p-3 border border-blue-50 shadow-sm flex flex-col justify-center">
+                            <span className="text-xs font-semibold text-slate-500 mb-1">總蛋白質</span>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-lg sm:text-xl font-black text-blue-900">{dietTotals.protein.toFixed(1)}</span>
+                              <span className="text-xs font-bold text-slate-500">g</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-600 font-medium mt-1">
+                              佔 {proteinPct.toFixed(1)}% 熱量
+                            </span>
+                          </div>
+
+                          {/* 總脂肪 */}
+                          <div className="bg-white rounded-xl p-3 border border-blue-50 shadow-sm flex flex-col justify-center">
+                            <span className="text-xs font-semibold text-slate-500 mb-1">總脂肪</span>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-lg sm:text-xl font-black text-blue-900">{dietTotals.fat.toFixed(1)}</span>
+                              <span className="text-xs font-bold text-slate-500">g</span>
+                            </div>
+                            <span className="text-[10px] text-amber-600 font-medium mt-1">
+                              佔 {fatPct.toFixed(1)}% 熱量
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 其他關鍵營養素評估 */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pt-2">
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">膳食纖維</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.fiber.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">飽和脂肪</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.saturatedFat.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">反式脂肪</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.transFat.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">膽固醇</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.cholesterol.toFixed(1)} <span className="text-[9px] font-normal">mg</span></div>
+                          </div>
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">鈉 (Na)</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.na.toFixed(0)} <span className="text-[9px] font-normal">mg</span></div>
+                          </div>
+                          <div className="bg-white rounded-xl p-2.5 border border-slate-100 flex flex-col items-center justify-center text-center shadow-xs">
+                            <span className="text-[10px] font-bold text-slate-400 mb-0.5">鉀 (K) / 磷 (P)</span>
+                            <div className="text-sm font-black text-slate-700">{dietTotals.k.toFixed(0)} / {dietTotals.p.toFixed(0)} <span className="text-[9px] font-normal">mg</span></div>
+                          </div>
+                        </div>
+
+                        {Object.keys(dietTotals.categories).length > 0 && (
+                          <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 border-t border-blue-100/80">
+                            {Object.entries(dietTotals.categories).map(([category, count]) => (
+                              count > 0 && (
+                                <div key={category} className="flex items-center gap-1.5 text-xs bg-white border border-slate-100 px-2.5 py-1 rounded-lg">
+                                  <span className="text-slate-500 font-medium">{category}:</span>
+                                  <span className="font-bold text-blue-800">{count.toFixed(1)} <span className="text-[10px] font-normal opacity-70">份</span></span>
+                                </div>
+                              )
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  <div className="relative">
+                    <div className="flex flex-col md:flex-row items-stretch gap-4 mb-4">
+                      {/* Portion specification */}
+                      <div className="flex flex-col justify-between bg-slate-50 border border-slate-200 rounded-lg p-3 w-full md:w-auto shadow-sm">
+                        <span className="text-xs font-semibold text-slate-500 mb-1.5 block">預設新增份數：</span>
+                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 max-w-[150px] shadow-sm">
+                          <button 
+                            type="button"
+                            onClick={() => setPortionInput(Math.max(0.5, portionInput - 0.5))}
+                            className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded transition-all font-bold text-sm"
+                          >
+                            -
+                          </button>
+                          <input 
+                            type="number" 
+                            min="0.1" 
+                            step="0.1" 
+                            value={portionInput} 
+                            onChange={e => setPortionInput(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                            className="w-12 h-8 text-center bg-white text-sm font-bold text-slate-800 focus:outline-none"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setPortionInput(portionInput + 0.5)}
+                            className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded transition-all font-bold text-sm"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 w-full space-y-2">
+                        <span className="text-xs font-semibold text-slate-500 block">餐次與食物名稱搜尋：</span>
+                        <div className="flex flex-col sm:flex-row items-center gap-2">
+                          <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+                            {MEALS.map(m => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setSelectedMeal(m)}
+                                className={`px-2.5 py-1.5 text-xs rounded-md transition-all ${selectedMeal === m ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="relative flex-1 w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input 
+                              type="text" 
+                              placeholder={`搜尋食物並加入${selectedMeal} (預設新增 ${portionInput} 份)...`}
+                              value={searchQuery}
+                              onChange={e => setSearchQuery(e.target.value)}
+                              className="w-full pl-10 pr-10 py-2 text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm bg-white"
+                            />
+                            {searchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-bold p-1 text-xs"
+                                title="清除搜尋"
+                              >
+                                ✕
+                              </button>
+                            )}
+
+                            {filteredFood.length > 0 && (
+                              <div className="absolute left-0 right-0 z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-64 overflow-y-auto">
+                                {filteredFood.map((food, idx) => (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => {
+                                      const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+                                      setState({
+                                        ...state,
+                                        diet: {
+                                          ...state.diet,
+                                          logs: [...state.diet.logs, { ...food, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
+                                        }
+                                      });
+                                      setSearchQuery('');
+                                    }}
+                                    className="w-full px-4 py-3 text-left hover:bg-blue-50 border-b border-slate-100 last:border-0 flex justify-between items-center transition-all"
+                                  >
+                                    <div>
+                                      <div className="font-semibold text-slate-800 text-xs sm:text-sm">{food.name}</div>
+                                      <div className="text-[10px] sm:text-xs text-slate-500">{food.category}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-[9px] sm:text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{selectedMeal} ({portionInput} 份)</span>
+                                      <Plus className="w-3.5 h-3.5 text-blue-500" />
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200 shadow-sm space-y-2">
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <span className="text-sm font-medium text-slate-700 whitespace-nowrap">分類新增飲食：</span>
+                      <select 
+                        value={selectedFoodCategory}
+                        onChange={e => {
+                          setSelectedFoodCategory(e.target.value);
+                          setSelectedFoodItem('');
+                        }}
+                        className="w-full sm:w-48 px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="">選擇食物類別...</option>
+                        {Array.from(new Set(FOOD_DATABASE.map(f => f.category))).map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      
+                      <select
+                        value={selectedFoodItem}
+                        onChange={e => {
+                          const foodName = e.target.value;
+                          setSelectedFoodItem(foodName);
+                            if (foodName) {
+                              const food = FOOD_DATABASE.find(f => f.name === foodName && f.category === selectedFoodCategory);
+                              if (food) {
+                                const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+                                setState({
+                                  ...state,
+                                  diet: {
+                                    ...state.diet,
+                                    logs: [...state.diet.logs, { ...food, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
+                                  }
+                                });
+                                setSelectedFoodItem('');
+                            }
+                          }
+                        }}
+                        disabled={!selectedFoodCategory}
+                        className="w-full flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">選擇食物...</option>
+                        {selectedFoodCategory && FOOD_DATABASE.filter(f => f.category === selectedFoodCategory).map(f => (
+                          <option key={f.name} value={f.name}>{f.name}</option>
+                        ))}
+                      </select>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-medium pl-1">
+                        ※ 滷味、鹹酥雞、火鍋資料取自好食課資料庫
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 飲食份數矩陣表格 (Diet Portions Matrix) */}
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-bold text-slate-700 flex items-center gap-1.5 flex-wrap">
+                        <Utensils className="w-4 h-4 text-blue-600" />
+                        飲食史份數矩陣 (橫軸：餐次 | 縱軸：主要食物類別)
+                        <span className="text-[10px] text-blue-600 font-normal bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 flex items-center gap-1">
+                          💡 雙擊儲存格可快速 修改/追加食物
+                        </span>
+                      </span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        單位：份量數值 (依輸入顯示)
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-center border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 font-semibold">
+                            <th className="px-3 py-2.5 text-left font-bold text-slate-700 bg-slate-50 border-r border-slate-200 min-w-[120px]">食物類別</th>
+                            {MEALS.map(meal => (
+                              <th key={meal} className="px-2 py-2.5 min-w-[95px] border-r border-slate-200 last:border-r-0">
+                                {meal}
+                              </th>
+                            ))}
+                            <th className="px-3 py-2.5 font-bold text-slate-700 bg-slate-50 border-l border-slate-200">類別總計</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {DIET_MATRIX_ROW_CATEGORIES.map(category => {
+                            let rowSum = 0;
+                            return (
+                              <tr key={category} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="px-3 py-2 text-left font-medium text-slate-700 bg-slate-50/50 border-r border-slate-200">
+                                  {category}
+                                </td>
+                                {MEALS.map(meal => {
+                                  // Find items for this cell
+                                  const cellItems = state.diet.logs.filter(
+                                    log => getRowCategory(log.category) === category && log.meal === meal
+                                  );
+                                  const cellSum = cellItems.reduce((sum, log) => sum + (log.qty || 0), 0);
+                                  rowSum += cellSum;
+                                  
+                                  const foodNamesStr = cellItems.map(item => `${item.name} (${item.qty}份)`).join(', ');
+
+                                  return (
+                                    <td 
+                                      key={meal} 
+                                      className="px-1 py-1.5 border-r border-slate-100 last:border-r-0 relative group cursor-pointer hover:bg-slate-50/80 transition-colors"
+                                      onDoubleClick={() => handleCellDoubleClick(category, meal)}
+                                      title={cellSum > 0 ? `${foodNamesStr}\n(雙擊可編輯/修改份數)` : `(雙擊可直接新增此欄食物)`}
+                                    >
+                                      {cellSum > 0 ? (
+                                        <div 
+                                          className="mx-1 p-1 bg-blue-50 border border-blue-100 rounded-lg flex flex-col items-center justify-center transition-all hover:bg-blue-100 hover:border-blue-200 shadow-sm relative group"
+                                        >
+                                          <div className="absolute right-1 top-0.5 text-[8px] text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            ✎
+                                          </div>
+                                          <span className="text-xs font-black text-blue-750">{cellSum}</span>
+                                          <div className="text-[9px] text-slate-500 truncate max-w-[85px] mt-0.5 scale-90">
+                                            {cellItems.map(item => item.name.split(' ')[0]).join(',')}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="h-8 flex items-center justify-center text-slate-300 hover:text-blue-500 hover:bg-blue-50/40 rounded-md transition-all text-xs font-light">
+                                          <span className="group-hover:inline hidden font-bold text-xs text-blue-500">+</span>
+                                          <span className="group-hover:hidden">-</span>
+                                        </div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-3 py-2 font-bold text-slate-800 bg-slate-50/30 border-l border-slate-200 text-center">
+                                  {rowSum > 0 ? (
+                                    <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
+                                      {rowSum}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 font-light">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-100 text-slate-700 font-bold border-t border-slate-300">
+                            <td className="px-3 py-2.5 text-left border-r border-slate-300">餐次總計</td>
+                            {MEALS.map(meal => {
+                              const mealSum = state.diet.logs
+                                .filter(log => log.meal === meal)
+                                .reduce((sum, log) => sum + (log.qty || 0), 0);
+                              return (
+                                <td key={meal} className="px-2 py-2.5 border-r border-slate-200 last:border-r-0 text-center">
+                                  {mealSum > 0 ? (
+                                    <span className="text-xs font-black text-blue-800">{mealSum} <span className="text-[9px] font-normal">份</span></span>
+                                  ) : (
+                                    <span className="text-slate-400 font-light">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="px-3 py-2.5 bg-slate-200 font-black text-slate-800 border-l border-slate-300 text-center">
+                              {(() => {
+                                const total = state.diet.logs.reduce((sum, log) => sum + (log.qty || 0), 0);
+                                return total > 0 ? `${total} 份` : '-';
+                              })()}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 飲食攝取備註 */}
+                  <div className="space-y-1.5 mb-6 bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm">
+                    <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      飲食攝取備註
+                    </label>
+                    <textarea 
+                      value={state.diet.intakeNotes || ''}
+                      onChange={e => setState({...state, diet: {...state.diet, intakeNotes: e.target.value}})}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-20 bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      placeholder="填寫關於此次飲食攝取、餐次熱量調配或飲食評估細節的備註..."
+                    ></textarea>
+                  </div>
+
+                  {/* 飲食內容 (Diet Content) */}
+                  <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4 space-y-3 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setDietLogsExpanded(!dietLogsExpanded)}
+                      className="w-full flex items-center justify-between text-slate-800 font-bold border-b border-slate-200 pb-2 mb-1 hover:text-slate-900 cursor-pointer text-left focus:outline-none"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ClipboardList className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm font-bold text-slate-800">飲食內容 (共 {state.diet.logs.length} 筆)</span>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                        {dietLogsExpanded ? '收合 ▲' : '展開 ▼'}
+                      </span>
+                    </button>
+                    
+                    {dietLogsExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="overflow-x-auto rounded-lg border border-slate-200 bg-white"
+                      >
+                        <table className="w-full text-sm text-left">
+                          <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider">
+                            <tr>
+                              <th className="px-4 py-3">餐次</th>
+                              <th className="px-4 py-3">食物名稱</th>
+                              <th className="px-4 py-3">類別</th>
+                              <th className="px-4 py-3">份數</th>
+                              <th className="px-4 py-3 text-right">醣 (g)</th>
+                              <th className="px-4 py-3 text-right">蛋 (g)</th>
+                              <th className="px-4 py-3 text-right">脂 (g)</th>
+                              <th className="px-4 py-3 text-right">熱量 (kcal)</th>
+                              <th className="px-4 py-3 text-right">纖維 (g)</th>
+                              <th className="px-4 py-3 text-right">飽和 (g)</th>
+                              <th className="px-4 py-3 text-right">反式 (g)</th>
+                              <th className="px-4 py-3 text-right">膽固醇 (mg)</th>
+                              <th className="px-4 py-3 text-right">Na (mg)</th>
+                              <th className="px-4 py-3 text-right">K (mg)</th>
+                              <th className="px-4 py-3 text-right">P (mg)</th>
+                              <th className="px-4 py-3 text-center">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {state.diet.logs.map((log) => (
+                              <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                    {log.meal}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-medium text-slate-800">{log.name}</td>
+                                <td className="px-4 py-3">
+                                  <select 
+                                    value={log.category || ''} 
+                                    onChange={e => {
+                                      const newLogs = state.diet.logs.map(l => l.id === log.id ? {...l, category: e.target.value} : l);
+                                      setState({...state, diet: {...state.diet, logs: newLogs}});
+                                    }}
+                                    className="text-xs px-2 py-1 rounded border border-slate-200 bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                                  >
+                                    {DIET_LOG_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                  </select>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <input 
+                                    type="number" 
+                                    value={log.qty || 0} 
+                                    step="0.5"
+                                    onChange={e => {
+                                      const newLogs = state.diet.logs.map(l => l.id === log.id ? {...l, qty: parseFloat(e.target.value) || 0} : l);
+                                      setState({...state, diet: {...state.diet, logs: newLogs}});
+                                    }}
+                                    className="w-16 px-2 py-1 rounded border border-slate-200"
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right">{(log.carbs * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{(log.protein * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{(log.fat * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{(log.kcal * log.qty).toFixed(0)}</td>
+                                <td className="px-4 py-3 text-right">{((typeof log.fiber === 'number' ? log.fiber : parseFloat(log.fiber || '0') || 0) * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{((typeof log.saturatedFat === 'number' ? log.saturatedFat : parseFloat(log.saturatedFat || '0') || 0) * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{((typeof log.transFat === 'number' ? log.transFat : parseFloat(log.transFat || '0') || 0) * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{((typeof log.cholesterol === 'number' ? log.cholesterol : parseFloat(log.cholesterol || '0') || 0) * log.qty).toFixed(1)}</td>
+                                <td className="px-4 py-3 text-right">{( (typeof log.na === 'number' ? log.na : parseFloat(log.na || '0') || 0) * log.qty).toFixed(0)}</td>
+                                <td className="px-4 py-3 text-right">{( (typeof log.k === 'number' ? log.k : parseFloat(log.k || '0') || 0) * log.qty).toFixed(0)}</td>
+                                <td className="px-4 py-3 text-right">{( (typeof log.p === 'number' ? log.p : parseFloat(log.p || '0') || 0) * log.qty).toFixed(0)}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <button 
+                                    onClick={() => {
+                                      const newLogs = state.diet.logs.filter(l => l.id !== log.id);
+                                      setState({...state, diet: {...state.diet, logs: newLogs}});
+                                    }}
+                                    className="p-1 text-red-400 hover:text-red-655 hover:bg-red-50 rounded transition-all"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                            {state.diet.logs.length === 0 && (
+                              <tr>
+                                <td colSpan={16} className="px-4 py-8 text-center text-slate-400 italic">尚未新增飲食紀錄</td>
+                              </tr>
+                            )}
+                          </tbody>
+                          <tfoot className="bg-blue-50 font-bold text-blue-900">
+                            <tr>
+                              <td className="px-4 py-3">總計</td>
+                              <td className="px-4 py-3">--</td>
+                              <td className="px-4 py-3">--</td>
+                              <td className="px-4 py-3">--</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.carbs.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.protein.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.fat.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.kcal.toFixed(0)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.fiber.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.saturatedFat.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.transFat.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.cholesterol.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.na.toFixed(0)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.k.toFixed(0)}</td>
+                              <td className="px-4 py-3 text-right">{dietTotals.p.toFixed(0)}</td>
+                              <td className="px-4 py-3 text-center">
+                                <span className="text-xs bg-blue-200 px-2 py-1 rounded-full">{dietTotals.kcal.toFixed(0)} kcal</span>
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'diagnosis' && (
+            <motion.div
+              key="diagnosis"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+        
+              {/* CURRENT INTAKE VS SUGGESTED TARGETS */}
+              
+                {/* 1. 目前飲食攝取總計 */}
+                <div className="bg-slate-50 rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                      Currently Tracked Intake (Assessment Linked)
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="bg-white border border-slate-200 rounded-lg p-2.5 text-center shadow-xs">
+                      <div className="text-[10px] text-slate-500 font-semibold mb-0.5">熱量</div>
+                      <div className="text-sm font-black text-blue-600">{dietTotals.kcal.toFixed(0)} <span className="text-[9px] font-normal">kcal</span></div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-lg p-2.5 text-center shadow-xs">
+                      <div className="text-[10px] text-slate-500 font-semibold mb-0.5">醣類</div>
+                      <div className="text-sm font-black text-slate-700">{dietTotals.carbs.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-lg p-2.5 text-center shadow-xs">
+                      <div className="text-[10px] text-slate-500 font-semibold mb-0.5">蛋白質</div>
+                      <div className="text-sm font-black text-slate-700">{dietTotals.protein.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-lg p-2.5 text-center shadow-xs">
+                      <div className="text-[10px] text-slate-500 font-semibold mb-0.5">脂肪</div>
+                      <div className="text-sm font-black text-slate-700">{dietTotals.fat.toFixed(1)} <span className="text-[9px] font-normal">g</span></div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 border-t border-dashed border-slate-200 pt-3 text-[11px] text-slate-500">
+                    <div className="flex justify-between px-1">
+                      <span>鈉 (Na):</span> 
+                      <span className="font-bold text-slate-800">{dietTotals.na.toFixed(0)} mg</span>
+                    </div>
+                    <div className="flex justify-between px-1 border-l border-slate-200">
+                      <span>鉀 (K):</span> 
+                      <span className="font-bold text-slate-800">{dietTotals.k.toFixed(0)} mg</span>
+                    </div>
+                    <div className="flex justify-between px-1 border-l border-slate-200">
+                      <span>磷 (P):</span> 
+                      <span className="font-bold text-slate-800">{dietTotals.p.toFixed(0)} mg</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. 建議熱量需求與三大營養素比例 */}
+                <div className="bg-emerald-50/20 rounded-xl shadow-sm border border-emerald-200/60 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-emerald-100 pb-2">
+                    <h3 className="font-bold text-emerald-800 text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      建議熱量需求與分配 (計畫連動)
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-lg p-2.5 text-center">
+                      <div className="text-[10px] text-emerald-600 font-semibold mb-0.5">建議熱量</div>
+                      <div className="text-sm font-black text-emerald-700">
+                        {state.diet.targetKcal || recommendedKcal || '--'} <span className="text-[9px] font-normal">kcal</span>
+                      </div>
+                    </div>
+                    {(() => {
+                      const kcal = parseCalorie(state.diet.targetKcal) || parseCalorie(recommendedKcal);
+                      const config = state.intervention.macroConfig || { carbsPercent: 55, proteinPercent: 15, fatPercent: 30 };
+                      const cp = parseFloat(config.carbsPercent as any) || 0;
+                      const pp = parseFloat(config.proteinPercent as any) || 0;
+                      const fp = parseFloat(config.fatPercent as any) || 0;
+                      const carbsG = kcal ? ((kcal * (cp / 100)) / 4).toFixed(1) : '--';
+                      const proteinG = kcal ? ((kcal * (pp / 100)) / 4).toFixed(1) : '--';
+                      const fatG = kcal ? ((kcal * (fp / 100)) / 9).toFixed(1) : '--';
+                      return (
+                        <>
+                          <div className="bg-white border border-slate-100 rounded-lg p-2.5 text-center shadow-xs">
+                            <div className="text-[10px] text-slate-500 font-semibold mb-0.5">醣 ({cp}%)</div>
+                            <div className="text-sm font-black text-slate-700">{carbsG}<span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                          <div className="bg-white border border-slate-100 rounded-lg p-2.5 text-center shadow-xs">
+                            <div className="text-[10px] text-slate-500 font-semibold mb-0.5">蛋白 ({pp}%)</div>
+                            <div className="text-sm font-black text-rose-700">{proteinG}<span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                          <div className="bg-white border border-slate-100 rounded-lg p-2.5 text-center shadow-xs">
+                            <div className="text-[10px] text-slate-500 font-semibold mb-0.5">脂肪 ({fp}%)</div>
+                            <div className="text-sm font-black text-slate-700">{fatG}<span className="text-[9px] font-normal">g</span></div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex items-center justify-between border-t border-dashed border-emerald-100 pt-3 text-[11px] text-emerald-800 bg-emerald-50/40 px-2 py-1 rounded">
+                    <span>
+                      飲水目標: <span className="font-extrabold">{state.diet.targetWater || recommendedWater || '--'} ml/d</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-600/80 italic">
+                      基準：體重 × 30 ml
+                    </span>
+                  </div>
+                </div>
+
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Stethoscope className="w-5 h-5 text-red-600" />
+                    營養診斷 (Diagnosis - PES)
+                  </h2>
+                </div>
+                <div className="p-6 space-y-6">
+                  {/* Diagnosis Form */}
+                  <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-6">
+                    <h3 className="font-bold text-slate-700">新增診斷</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-slate-700">1. 診斷領域 (Domain)</label>
+                        <select 
+                          value={currentDiagnosis.domain || ''}
+                          onChange={e => setCurrentDiagnosis({...currentDiagnosis, domain: e.target.value, problem: '', etiology: '', symptom: ''})}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm"
+                        >
+                          <option value="">請選擇領域</option>
+                          {Object.keys(DIAG_DATA).map(d => <option key={d} value={d}>{DIAG_DATA[d as keyof typeof DIAG_DATA].label}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-slate-700">2. 問題 Problem (P)</label>
+                        <div className="space-y-2">
+                          <select 
+                            value={currentDiagnosis.problem || ''}
+                            disabled={!currentDiagnosis.domain}
+                            onChange={e => setCurrentDiagnosis({...currentDiagnosis, problem: e.target.value, etiology: '', symptom: ''})}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white disabled:bg-slate-50 disabled:text-slate-400 text-sm"
+                          >
+                            <option value="">請選擇問題</option>
+                            {currentDiagnosis.domain && Object.keys(DIAG_DATA[currentDiagnosis.domain as keyof typeof DIAG_DATA].problems).map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                          {currentDiagnosis.problem === '其他' && (
+                            <input 
+                              type="text" 
+                              placeholder="請輸入自定義問題..."
+                              value={currentDiagnosis.problemOther || ''}
+                              onChange={e => setCurrentDiagnosis({...currentDiagnosis, problemOther: e.target.value})}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm"
+                            />
+                          )}
+                          {currentDiagnosis.problem && DIAG_PROBLEM_INFO[currentDiagnosis.problem] && (
+                            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-slate-700 space-y-1.5 shadow-xs">
+                              <div>
+                                <span className="font-bold text-blue-800">【定義】</span>
+                                {DIAG_PROBLEM_INFO[currentDiagnosis.problem].definition}
+                              </div>
+                              {DIAG_PROBLEM_INFO[currentDiagnosis.problem].notes && (
+                                <div className="border-t border-blue-100 pt-1.5 mt-1.5">
+                                  <span className="font-bold text-amber-800">【注意】</span>
+                                  {DIAG_PROBLEM_INFO[currentDiagnosis.problem].notes}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-slate-700">3. 原因 Etiology (E)</label>
+                        <div className="space-y-2">
+                          <select 
+                            value={currentDiagnosis.etiology || ''}
+                            disabled={!currentDiagnosis.problem}
+                            onChange={e => setCurrentDiagnosis({...currentDiagnosis, etiology: e.target.value})}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white disabled:bg-slate-50 text-sm"
+                          >
+                            <option value="">請選擇原因</option>
+                            {currentDiagnosis.problem && currentDiagnosis.problem !== '其他' && DIAG_DATA[currentDiagnosis.domain as keyof typeof DIAG_DATA].problems[currentDiagnosis.problem].etiologies.map(e => <option key={e} value={e}>{e}</option>)}
+                            {currentDiagnosis.problem === '其他' && <option value="其他">其他</option>}
+                          </select>
+                          {currentDiagnosis.etiology === '其他' && (
+                            <input 
+                              type="text" 
+                              placeholder="請輸入自定義原因..."
+                              value={currentDiagnosis.etiologyOther || ''}
+                              onChange={e => setCurrentDiagnosis({...currentDiagnosis, etiologyOther: e.target.value})}
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm"
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
+                        <label className="text-sm font-medium text-slate-700 flex items-center justify-between">
+                          <span>4. 症狀 Symptoms (S) <span className="text-xs font-normal text-slate-500">(可多選常用症狀，或於下方自由編輯)</span></span>
+                          {currentDiagnosis.problem && currentDiagnosis.problem !== '其他' && (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={selectAllSymptoms}
+                                className="text-xs text-blue-600 hover:text-blue-700 font-bold px-2 py-0.5 rounded hover:bg-blue-50 transition-colors"
+                              >
+                                全選
+                              </button>
+                              <button
+                                type="button"
+                                onClick={clearAllSymptoms}
+                                className="text-xs text-slate-500 hover:text-slate-600 font-bold px-2 py-0.5 rounded hover:bg-slate-50 transition-colors"
+                              >
+                                清除
+                              </button>
+                            </div>
+                          )}
+                        </label>
+                        <div className="space-y-3">
+                          {currentDiagnosis.problem && currentDiagnosis.problem !== '其他' && (
+                            <div className="p-4 bg-white border border-slate-200 rounded-lg max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {DIAG_DATA[currentDiagnosis.domain as keyof typeof DIAG_DATA]?.problems[currentDiagnosis.problem]?.symptoms.map(s => {
+                                const isChecked = currentDiagnosis.symptom
+                                  ? currentDiagnosis.symptom.split('、').map(x => x.trim()).includes(s)
+                                  : false;
+                                return (
+                                  <label key={s} className="flex items-start gap-2 p-1.5 hover:bg-slate-50 rounded-md cursor-pointer transition-colors">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => toggleSymptomCheckbox(s)}
+                                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 mt-0.5 cursor-pointer"
+                                    />
+                                    <span className="text-xs text-slate-700 leading-tight">{s}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <input 
+                            type="text" 
+                            placeholder={currentDiagnosis.problem ? "在此自由填寫 / 自定義修改完整症狀描述..." : "請先選擇問題再填寫症狀..."}
+                            value={currentDiagnosis.symptom || ''}
+                            disabled={!currentDiagnosis.problem}
+                            onChange={e => setCurrentDiagnosis({...currentDiagnosis, symptom: e.target.value, symptomOther: e.target.value})}                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent outline-none transition-all disabled:bg-slate-50 text-sm" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <button 
+                        onClick={() => {
+                          if (currentDiagnosis.problem && currentDiagnosis.etiology && currentDiagnosis.symptom) {
+                            setState({
+                              ...state, 
+                              diagnoses: [...(state.diagnoses || []), { ...currentDiagnosis, id: Date.now().toString() }]
+                            });
+                            setCurrentDiagnosis({ domain: '', problem: '', etiology: '', symptom: '', id: '' });
+                          }
+                        }}
+                        disabled={
+                          !currentDiagnosis.problem || 
+                          (currentDiagnosis.problem === '其他' && !currentDiagnosis.problemOther?.trim()) ||
+                          !currentDiagnosis.etiology || 
+                          (currentDiagnosis.etiology === '其他' && !currentDiagnosis.etiologyOther?.trim()) ||
+                          !currentDiagnosis.symptom ||
+                          (currentDiagnosis.symptom === '其他' && !currentDiagnosis.symptomOther?.trim())
+                        }
+                        className="px-6 py-2 bg-red-650 text-white rounded-lg font-bold hover:bg-red-700 disabled:bg-slate-300 transition-colors"
+                      >
+                        新增此診斷
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Diagnosis List */}
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                      已建立診斷列表
+                      <span className="text-xs font-normal text-slate-400">({state.diagnoses?.length || 0})</span>
+                    </h3>
+                    {(!state.diagnoses || state.diagnoses.length === 0) ? (
+                      <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
+                        目前尚無診斷紀錄
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {state.diagnoses?.map((diag, idx) => (
+                          <div key={diag.id} className="p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
+                            <div className="flex justify-between items-start mb-4">
+                              <span className="px-3 py-1 bg-red-50 text-red-700 text-xs font-bold rounded-full border border-red-100">
+                                {DIAG_DATA[diag.domain as keyof typeof DIAG_DATA]?.label || diag.domain}
+                              </span>
+                              <button 
+                                onClick={() => setState({...state, diagnoses: (state.diagnoses || []).filter(d => d.id !== diag.id)})}
+                                className="text-slate-300 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <p className="text-lg font-serif italic text-slate-800 leading-relaxed">
+                              <span className="font-bold underline decoration-red-300">
+                                {diag.problem === '其他' ? (diag.problemOther || '其他') : diag.problem}
+                              </span>
+                              <span className="mx-2 text-slate-400">與</span>
+                              <span className="font-bold underline decoration-red-300">
+                                {diag.etiology === '其他' ? (diag.etiologyOther || '其他') : diag.etiology}
+                              </span>
+                              <span className="mx-2 text-slate-400">有關，經由</span>
+                              <span className="font-bold underline decoration-red-300">
+                                {diag.symptom === '其他' ? (diag.symptomOther || '其他') : diag.symptom}
+                              </span>
+                              <span className="mx-2 text-slate-400">證實。</span>
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* 營養診斷術語 備註指引 card */}
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div 
+                  className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
+                  onClick={() => setShowDiagTerminology(!showDiagTerminology)}
+                >
+                  <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-600" />
+                    備註「營養診斷術語」
+                  </h2>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <span>{showDiagTerminology ? "收合" : "展開"}</span>
+                    <svg className={`w-4 h-4 transform transition-transform duration-200 ${showDiagTerminology ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+
+                {showDiagTerminology && (
+                  <div className="p-6 space-y-6">
+                    {/* Diagnosis Terminology Tab buttons */}
+                    <div className="flex border-b border-slate-200">
+                      {(Object.keys(DIAGNOSTIC_TERMINOLOGIES) as Array<keyof typeof DIAGNOSTIC_TERMINOLOGIES>).map((key) => {
+                        const active = diagTerminologyActiveTab === key;
+                        const data = DIAGNOSTIC_TERMINOLOGIES[key as keyof typeof DIAGNOSTIC_TERMINOLOGIES];
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => setDiagTerminologyActiveTab(key as any)}
+                            className={`px-5 py-2.5 font-bold text-sm transition-all border-b-2 -mb-px ${
+                              active 
+                                ? "border-indigo-600 text-indigo-600 font-black" 
+                                : "border-transparent text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {data.title}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Active Tab contents */}
+                    {(() => {
+                      const activeData = DIAGNOSTIC_TERMINOLOGIES[diagTerminologyActiveTab];
+                      return (
+                        <div className={`p-5 rounded-xl border ${activeData.color.border} ${activeData.color.bg} space-y-5`}>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {activeData.sections.map((section, sidx) => (
+                              <div key={sidx} className="bg-white rounded-lg border border-slate-200 shadow-xs flex flex-col overflow-hidden">
+                                <div className={`px-4 py-2 text-xs font-bold border-b ${activeData.color.headerBg}`}>
+                                  {section.name}
+                                </div>
+                                <div className="p-4 flex-1">
+                                  <ul className="space-y-2">
+                                    {section.items.map((item, iidx) => (
+                                      <li key={iidx} className="text-xs text-slate-705 flex items-start gap-1.5 leading-relaxed">
+                                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-slate-400`} />
+                                        <span>{item}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'intervention' && (
+            <motion.div
+              key="intervention"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Utensils className="w-5 h-5 text-green-600" />
+                    營養介入 (Intervention)
+                  </h2>
+                </div>
+                <div className="p-6 space-y-8">
+                  <div className="space-y-6 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">建議熱量需求與三大營養素比例</div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Calorie Input Block */}
+                      <div className="space-y-3 p-4 bg-white rounded-xl border border-slate-200">
+                        <label className="text-xs font-bold text-slate-400 block tracking-tight">1. 建議熱量需求 (kcal/d)</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={state.diet.targetKcal || ''}
+                            onChange={e => setState({...state, diet: {...state.diet, targetKcal: e.target.value}})}
+                            placeholder="例如：1800"
+                            className="flex-1 px-3 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-green-500 outline-none transition-all"
+                          />
+                          <button 
+                            onClick={() => setState({...state, diet: {...state.diet, targetKcal: recommendedKcal.toString()}})}
+                            className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-[10px] font-bold hover:bg-green-200 transition-colors whitespace-nowrap"
+                          >
+                            帶入建議值 ({recommendedKcal})
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Macronutrient Proportion Block */}
+                      {(() => {
+                        const cpInput = parseFloat(state.intervention.macroConfig?.carbsPercent as any) || 0;
+                        const ppInput = parseFloat(state.intervention.macroConfig?.proteinPercent as any) || 0;
+                        const fpInput = parseFloat(state.intervention.macroConfig?.fatPercent as any) || 0;
+                        const totalPercent = parseFloat((cpInput + ppInput + fpInput).toFixed(1));
+                        return (
+                          <div className="space-y-3 p-4 bg-white rounded-xl border border-slate-200">
+                            <div className="flex justify-between items-center">
+                              <label className="text-xs font-bold text-slate-400 tracking-tight">2. 三大營養素分配 (%)</label>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${totalPercent === 100 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                 總計: {totalPercent}%
+                              </span>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                              <div className="flex flex-col flex-1 items-center">
+                                <span className="text-[10px] text-slate-400 font-bold mb-1">醣類</span>
+                                <div className="relative w-full">
+                                  <input 
+                                    type="text" 
+                                    value={state.intervention.macroConfig?.carbsPercent ?? ''} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        setState({
+                                          ...state,
+                                          intervention: {
+                                            ...state.intervention,
+                                            macroConfig: {
+                                              ...state.intervention.macroConfig!,
+                                              carbsPercent: val as any
+                                            }
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    className="w-full pl-2 pr-6 py-2 text-sm border rounded-lg text-center font-bold text-slate-700"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col flex-1 items-center">
+                                <span className="text-[10px] text-slate-400 font-bold mb-1">蛋白質</span>
+                                <div className="relative w-full">
+                                  <input 
+                                    type="text" 
+                                    value={state.intervention.macroConfig?.proteinPercent ?? ''} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        setState({
+                                          ...state,
+                                          intervention: {
+                                            ...state.intervention,
+                                            macroConfig: {
+                                              ...state.intervention.macroConfig!,
+                                              proteinPercent: val as any
+                                            }
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    className="w-full pl-2 pr-6 py-2 text-sm border rounded-lg text-center font-bold text-slate-700"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-col flex-1 items-center">
+                                <span className="text-[10px] text-slate-400 font-bold mb-1">脂肪</span>
+                                <div className="relative w-full">
+                                  <input 
+                                    type="text" 
+                                    value={state.intervention.macroConfig?.fatPercent ?? ''} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        setState({
+                                          ...state,
+                                          intervention: {
+                                            ...state.intervention,
+                                            macroConfig: {
+                                              ...state.intervention.macroConfig!,
+                                              fatPercent: val as any
+                                            }
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    className="w-full pl-2 pr-6 py-2 text-sm border rounded-lg text-center font-bold text-slate-700"
+                                  />
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">%</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 備註指引 */}
+                            <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1 bg-slate-50/50 p-2.5 rounded-lg text-left">
+                              <div className="font-bold text-slate-600 flex items-center gap-1.5 mb-1">
+                                <Info className="w-3.5 h-3.5 text-slate-400" />
+                                配比參考備註：
+                              </div>
+                              <ol className="list-decimal pl-4.5 space-y-1 leading-relaxed">
+                                <li>蛋白質：一般12%、DM15-20%、CKD kg*0.6-0.8、DKD kg*0.8</li>
+                                <li>CKD/DKD 開低氮澱粉的執行率不高</li>
+                                <li>油脂的份量約6-9份（9份很少）</li>
+                              </ol>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Result Summary Block */}
+                    {recommendedMacros && (
+                      <div className="flex flex-col sm:flex-row gap-4 p-5 bg-green-600 rounded-xl shadow-lg shadow-green-100 text-white">
+                        <div className="flex-1 text-center sm:text-left flex flex-col justify-center">
+                          <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest">每日目標熱量</div>
+                          <div className="text-2xl font-black">{state.diet.targetKcal || recommendedKcal} <span className="text-sm font-normal">kcal</span></div>
+                        </div>
+                        <div className="hidden sm:block w-px bg-white/20 my-2" />
+                        <div className="flex-[3] grid grid-cols-3 gap-2">
+                          <div className="text-center group">
+                            <div className="text-[10px] font-bold opacity-80 mb-1">醣類 (g)</div>
+                            <div className="text-xl font-black">{recommendedMacros.carbs}</div>
+                            <div className="text-[10px] opacity-60">({parseFloat(state.intervention.macroConfig?.carbsPercent as any) || 0}%)</div>
+                          </div>
+                          <div className="text-center border-x border-white/10">
+                            <div className="text-[10px] font-bold opacity-80 mb-1">蛋白質 (g)</div>
+                            <div className="text-xl font-black">{recommendedMacros.protein}</div>
+                            <div className="text-[10px] opacity-60">({parseFloat(state.intervention.macroConfig?.proteinPercent as any) || 0}%)</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-[10px] font-bold opacity-80 mb-1">脂肪 (g)</div>
+                            <div className="text-xl font-black">{recommendedMacros.fat}</div>
+                            <div className="text-[10px] opacity-60">({parseFloat(state.intervention.macroConfig?.fatPercent as any) || 0}%)</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Portions Calculator Section */}
+                    <div className="space-y-6 pt-6 border-t border-slate-200">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="bg-green-100 p-1.5 rounded-lg">
+                          <Calculator className="w-5 h-5 text-green-600" />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">六大類食物份數計算與建議</h3>
+                      </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+                        {/* Table Column - Spanning 9/12 */}
+                        <div className="xl:col-span-9 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                          <table className="w-full text-xs text-left border-collapse">
+                            <thead className="bg-slate-50 text-slate-500 font-bold uppercase">
+                              <tr>
+                                <th className="px-3 py-2.5 border-b border-r border-slate-200">食物類別</th>
+                                <th className="px-3 py-2.5 border-b border-r border-slate-200 text-center w-20">份數</th>
+                                <th className="px-3 py-2.5 border-b border-r border-slate-200 text-center text-[10px]">強白 (g)</th>
+                                <th className="px-3 py-2.5 border-b border-r border-slate-200 text-center text-[10px]">醣類 (g)</th>
+                                <th className="px-3 py-2.5 border-b border-r border-slate-200 text-center text-[10px]">脂肪 (g)</th>
+                                <th className="px-3 py-2.5 border-b border-slate-200 text-center text-[10px]">熱量 (kcal)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 italic">
+                              {[
+                                { key: '低脂乳品', p: 8, c: 12, f: 4, k: 120 },
+                                { key: '全脂乳品', p: 8, c: 12, f: 8, k: 150 },
+                                { key: '全榖雜糧', p: 2, c: 15, f: 0, k: 70 },
+                                { key: '低脂豆魚蛋肉', p: 7, c: 0, f: 3, k: 55 },
+                                { key: '中脂豆魚蛋肉', p: 7, c: 0, f: 5, k: 75 },
+                                { key: '蔬菜', p: 1, c: 5, f: 0, k: 25 },
+                                { key: '水果', p: 0, c: 15, f: 0, k: 60 },
+                                { key: '堅果', p: 0, c: 0, f: 5, k: 45 },
+                                { key: '低氮澱粉', p: 1, c: 15, f: 0, k: 64 }
+                              ].map((row) => {
+                                const portions = state.intervention.portions?.[row.key] || 0;
+                                return (
+                                  <tr key={row.key} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-3 py-1.5 font-bold text-slate-600 border-r border-slate-100">{row.key}</td>
+                                    <td className="px-2 py-1.5 border-r border-slate-100">
+                                      <input 
+                                        type="number"
+                                        step="0.5"
+                                        value={portions || ''}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value) || 0;
+                                          setState({
+                                            ...state,
+                                            intervention: {
+                                              ...state.intervention,
+                                              portions: {
+                                                ...state.intervention.portions,
+                                                [row.key]: val
+                                              }
+                                            }
+                                          });
+                                        }}
+                                        className="w-full h-8 text-center border border-slate-200 rounded-md focus:ring-1 focus:ring-green-500 outline-none font-black text-blue-600 bg-slate-50/30"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-1.5 text-center text-slate-400 border-r border-slate-100">{row.p}</td>
+                                    <td className="px-3 py-1.5 text-center text-slate-400 border-r border-slate-100">{row.c}</td>
+                                    <td className="px-3 py-1.5 text-center text-slate-400 border-r border-slate-100">{row.f}</td>
+                                    <td className="px-3 py-1.5 text-center text-slate-400">{row.k}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot className="bg-slate-800 text-white font-bold">
+                              {(() => {
+                                let totalP = 0, totalC = 0, totalF = 0, totalK = 0;
+                                Object.entries(state.intervention.portions || {}).forEach(([key, val]) => {
+                                  if (PORT_VALS[key]) {
+                                    totalP += val * PORT_VALS[key].p;
+                                    totalC += val * PORT_VALS[key].c;
+                                    totalF += val * PORT_VALS[key].f;
+                                    totalK += val * PORT_VALS[key].k;
+                                  }
+                                });
+                                return (
+                                  <>
+                                    <tr>
+                                      <td className="px-3 py-1.5 border-r border-slate-700 text-center text-[10px]" colSpan={2}>總計公克 (g)</td>
+                                      <td className="px-3 py-1.5 text-center border-r border-slate-700 text-green-400">{totalP.toFixed(0)}</td>
+                                        <td className="px-3 py-1.5 text-center border-r border-slate-700 text-blue-400">{totalC.toFixed(0)}</td>
+                                        <td className="px-3 py-1.5 text-center border-r border-slate-700 text-orange-400">{totalF.toFixed(0)}</td>
+                                        <td className="px-3 py-1.5 text-center bg-green-700 font-black">{totalK.toFixed(0)}</td>
+                                      </tr>
+                                      <tr className="bg-slate-900 border-t border-slate-700">
+                                        <td className="px-3 py-1.5 border-r border-slate-800 text-center text-[10px]" colSpan={2}>能量佔比 (%)</td>
+                                        <td className="px-3 py-1.5 text-center border-r border-slate-800 text-green-200 opacity-80 text-[10px]">{totalK > 0 ? ((totalP * 4 / totalK) * 100).toFixed(1) : '0.0'}%</td>
+                                        <td className="px-3 py-1.5 text-center border-r border-slate-800 text-blue-200 opacity-80 text-[10px]">{totalK > 0 ? ((totalC * 4 / totalK) * 100).toFixed(1) : '0.0'}%</td>
+                                        <td className="px-3 py-1.5 text-center border-r border-slate-800 text-orange-200 opacity-80 text-[10px]">{totalK > 0 ? ((totalF * 9 / totalK) * 100).toFixed(1) : '0.0'}%</td>
+                                        <td className="px-3 py-1.5 text-center opacity-40 text-[9px] uppercase tracking-tighter italic">Total Kcal</td>
+                                      </tr>
+                                    </>
+                                  );
+                                })()}
+                              </tfoot>
+                            </table>
+                          </div>
+
+                          <div className="xl:col-span-3 space-y-4">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">智能份數助理</h4>
+                                <button
+                                  onClick={() => {
+                                    setState({
+                                      ...state,
+                                      intervention: {
+                                        ...state.intervention,
+                                        portions: {
+                                          '低脂乳品': 0,
+                                          '全脂乳品': 0,
+                                          '全榖雜糧': 0,
+                                          '低脂豆魚蛋肉': 0,
+                                          '中脂豆魚蛋肉': 0,
+                                          '蔬菜': 0,
+                                          '水果': 0,
+                                          '堅果': 0,
+                                          '低氮澱粉': 0
+                                        }
+                                      }
+                                    });
+                                  }}
+                                  className="text-[10px] text-red-500 hover:text-red-700 font-bold flex items-center gap-1 transition-colors px-1.5 py-0.5 rounded hover:bg-red-50 active:scale-95 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  全部清除
+                                </button>
+                              </div>
+                              {(() => {
+                                const targetC = parseFloat(recommendedMacros?.carbs || '0');
+                                const targetP = parseFloat(recommendedMacros?.protein || '0');
+                                const targetF = parseFloat(recommendedMacros?.fat || '0');
+                                let currentC = 0, currentP = 0, currentF = 0;
+                                Object.entries(state.intervention.portions || {}).forEach(([key, val]) => {
+                                  const v = val || 0;
+                                  currentC += v * (PORT_VALS[key]?.c || 0);
+                                  currentP += v * (PORT_VALS[key]?.p || 0);
+                                  currentF += v * (PORT_VALS[key]?.f || 0);
+                                });
+                                const wgSug = Math.max(0, (targetC - currentC) / 15);
+                                const medSug = Math.max(0, (targetP - currentP) / 7);
+                                const nutsSug = Math.max(0, (targetF - currentF) / 5);
+                                return (
+                                  <div className="space-y-3">
+                                    <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                                      <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[10px] font-bold text-blue-600">全榖雜糧 (剩餘)</span>
+                                        <span className="text-sm font-black text-blue-700">{wgSug.toFixed(1)} 份</span>
+                                      </div>
+                                      <button 
+                                        onClick={() => {
+                                          const cur = state.intervention.portions?.['全榖雜糧'] || 0;
+                                          setState({ ...state, intervention: { ...state.intervention, portions: { ...state.intervention.portions, '全榖雜糧': parseFloat((cur + wgSug).toFixed(1)) } } });
+                                        }}
+                                        className="w-full py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-md shadow-sm"
+                                      >
+                                        增加剩餘
+                                      </button>
+                                    </div>
+                                    <div className="p-3 bg-orange-50/50 rounded-lg border border-orange-100">
+                                      <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[10px] font-bold text-orange-600">中脂肉類 (剩餘)</span>
+                                        <span className="text-sm font-black text-orange-700">{medSug.toFixed(1)} 份</span>
+                                      </div>
+                                      <button 
+                                        onClick={() => {
+                                          const cur = state.intervention.portions?.['中脂豆魚蛋肉'] || 0;
+                                          setState({ ...state, intervention: { ...state.intervention, portions: { ...state.intervention.portions, '中脂豆魚蛋肉': parseFloat((cur + medSug).toFixed(1)) } } });
+                                        }}
+                                        className="w-full py-1.5 bg-orange-600 text-white text-[10px] font-bold rounded-md shadow-sm"
+                                      >
+                                        增加剩餘
+                                      </button>
+                                    </div>
+                                    <div className="p-3 bg-amber-50/50 rounded-lg border border-amber-100">
+                                      <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[10px] font-bold text-amber-600">堅果建議 (剩餘)</span>
+                                        <span className="text-sm font-black text-amber-700">{nutsSug.toFixed(1)} 份</span>
+                                      </div>
+                                      <button 
+                                        onClick={() => {
+                                          const cur = state.intervention.portions?.['堅果'] || 0;
+                                          setState({ ...state, intervention: { ...state.intervention, portions: { ...state.intervention.portions, '堅果': parseFloat((cur + nutsSug).toFixed(1)) } } });
+                                        }}
+                                        className="w-full py-1.5 bg-amber-600 text-white text-[10px] font-bold rounded-md shadow-sm"
+                                      >
+                                        增加剩餘
+                                      </button>
+                                    </div>
+                                    <div className="pt-2 italic text-[9px] text-slate-400 text-right">
+                                      剩餘: 醣 {((targetC - currentC)).toFixed(1)}g | 蛋 {((targetP - currentP)).toFixed(1)}g | 脂 {((targetF - currentF)).toFixed(1)}g
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+
+                    {/* Guideline Reference Tables */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => setGuidelinesExpanded(!guidelinesExpanded)}
+                        className="w-full flex items-center justify-between text-slate-800 font-bold hover:text-slate-900 cursor-pointer text-left focus:outline-none"
+                      >
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="w-4 h-4 text-slate-600" />
+                          <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">飲食指南參考 (Reference Guidelines)</span>
+                        </div>
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
+                          {guidelinesExpanded ? '收合 ▲' : '展開 ▼'}
+                        </span>
+                      </button>
+                      
+                      {guidelinesExpanded && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-slate-200 mt-2"
+                        >
+                        {/* DM Table */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-blue-100 pb-1">
+                            <span className="text-xs font-black text-blue-600 uppercase">糖尿病 (DM) 份量建議</span>
+                          </div>
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
+                            <table className="w-full text-[10px] text-left">
+                              <thead className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100">
+                                <tr>
+                                  <th className="px-2 py-1.5 border-r border-slate-100">kcal</th>
+                                  {INTERVENTION_CATEGORIES.map(cat => (
+                                    <th key={cat} className="px-1 py-1.5 text-center min-w-[28px]">{cat.slice(0, 2)}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {Object.entries(DIET_GUIDELINES['DM']).map(([kcal, plan]) => {
+                                  const isMatched = Math.abs(parseInt(kcal) - (parseCalorie(state.diet.targetKcal) || parseCalorie(recommendedKcal))) < 50;
+                                  return (
+                                    <tr key={kcal} className={`hover:bg-blue-50/30 transition-colors ${isMatched ? 'bg-blue-50/50 font-bold text-blue-700' : 'text-slate-500'}`}>
+                                      <td className="px-2 py-1.5 font-mono border-r border-slate-100 bg-slate-50/30">{kcal}</td>
+                                      {INTERVENTION_CATEGORIES.map((cat, idx) => (
+                                        <td key={idx} className="px-1 py-1.5 text-center">{plan[cat] || '--'}</td>
+                                      ))}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* CKD Table */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-orange-100 pb-1">
+                            <span className="text-xs font-black text-orange-600 uppercase">腎臟病 (CKD) 份量建議</span>
+                          </div>
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
+                            <table className="w-full text-[10px] text-left">
+                              <thead className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100">
+                                <tr>
+                                  <th className="px-2 py-1.5 border-r border-slate-100">kcal</th>
+                                  {INTERVENTION_CATEGORIES.map(cat => (
+                                    <th key={cat} className="px-1 py-1.5 text-center min-w-[28px]">{cat.slice(0, 2)}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {Object.entries(DIET_GUIDELINES['CKD']).map(([kcal, plan]) => {
+                                  const isMatched = Math.abs(parseInt(kcal) - (parseCalorie(state.diet.targetKcal) || parseCalorie(recommendedKcal))) < 50;
+                                  return (
+                                    <tr key={kcal} className={`hover:bg-orange-50/30 transition-colors ${isMatched ? 'bg-orange-50/50 font-bold text-orange-700' : 'text-slate-500'}`}>
+                                      <td className="px-2 py-1.5 font-mono border-r border-slate-100 bg-slate-50/30">{kcal}</td>
+                                      {INTERVENTION_CATEGORIES.map((cat, idx) => (
+                                        <td key={idx} className="px-1 py-1.5 text-center">{plan[cat] || '--'}</td>
+                                      ))}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    </div>
+
+                    <div className="space-y-4">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                      營養教育 (Nutrition Education)
+                      <span className="text-xs font-normal text-slate-500">(可複選)</span>
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {Object.keys(NUTRITION_EDUCATION_CONTENT).map(topic => (
+                        <label key={topic} className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-all ${state.intervention.educationTopics.includes(topic) ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                          <input 
+                            type="checkbox" 
+                            checked={state.intervention.educationTopics.includes(topic)}
+                            onChange={e => {
+                              const newTopics = e.target.checked 
+                                ? [...state.intervention.educationTopics, topic]
+                                : state.intervention.educationTopics.filter(t => t !== topic);
+                              setState({...state, intervention: {...state.intervention, educationTopics: newTopics}});
+                            }}
+                            className="hidden" 
+                          />
+                          <span className="text-sm font-medium">{topic}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {state.intervention.educationTopics.length > 0 && (
+                      <div className="mt-4 space-y-4">
+                        {state.intervention.educationTopics.map(topic => (
+                          <div key={topic} className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                            <h4 className="font-bold text-green-700 mb-2 flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                              {topic}
+                            </h4>
+                            <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
+                              {NUTRITION_EDUCATION_CONTENT[topic]}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 自訂營養教育備註 */}
+                    <div className="pt-2 space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-green-600" />
+                        <span>個別化營養教育備註 (Custom Education Notes)</span>
+                      </label>
+                      <textarea
+                        value={state.intervention.educationNotes || ''}
+                        onChange={e => setState({
+                          ...state,
+                          intervention: {
+                            ...state.intervention,
+                            educationNotes: e.target.value
+                          }
+                        })}
+                        rows={3}
+                        className="w-full p-3 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-green-500 focus:border-green-500 outline-none resize-y"
+                        placeholder="在此自由填寫其他個別化的營養教育重點、醫囑或衛教備註..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700">一日飲水量建議</label>
+                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 text-blue-800 font-medium">
+                        建議飲水量: {recommendedWater || 2000} ml/d
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700">是否需轉介其他專業人員</label>
+                      <textarea 
+                        value={state.intervention.referral || ''}
+                        onChange={e => setState({...state, intervention: {...state.intervention, referral: e.target.value}})}
+                        placeholder="例如：轉介復健科評估吞嚥功能..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 h-24 text-slate-800"
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'monitoring' && (
+            <motion.div
+              key="monitoring"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-purple-600" />
+                    營養監測 (Nutrition Monitoring)
+                  </h2>
+                  
+                  {/* Segmented Controller */}
+                  <div className="flex bg-slate-100 p-1 rounded-lg w-fit border border-slate-200/50">
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringSubView('all')}
+                      className={`px-3 sm:px-4 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        monitoringSubView === 'all'
+                          ? 'bg-white text-purple-700 shadow-xs border border-purple-50/50'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      顯示全部 (All)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringSubView('checklist')}
+                      className={`px-3 sm:px-4 py-1 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                        monitoringSubView === 'checklist'
+                          ? 'bg-white text-purple-700 shadow-xs border border-purple-50/50'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      <ListChecks className="w-3.5 h-3.5" />
+                      監測指標勾選 ({state.monitoring.selectedIndicators?.length || 0})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringSubView('weight')}
+                      className={`px-3 sm:px-4 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        monitoringSubView === 'weight'
+                          ? 'bg-white text-purple-700 shadow-xs border border-purple-50/50'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      體重監測 (Weight)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMonitoringSubView('biochem')}
+                      className={`px-3 sm:px-4 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        monitoringSubView === 'biochem'
+                          ? 'bg-white text-purple-700 shadow-xs border border-purple-50/50'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      生化指標 (Biochemistry)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-8">
+                  
+                  {/* Part 0: Monitoring Indicators Checklist Panel */}
+                  {(monitoringSubView === 'all' || monitoringSubView === 'checklist') && (
+                    <motion.div
+                      key="monitoring-checklist-section"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-purple-50/30 p-5 sm:p-6 rounded-2xl border border-purple-100/80 space-y-6"
+                    >
+                      {/* Section Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-purple-100 pb-3">
+                        <div className="flex items-center gap-2 text-purple-900 font-bold">
+                          <ListChecks className="w-5 h-5 text-purple-600" />
+                          <div>
+                            <span className="text-base font-bold">① 營養監測與追蹤重點項目勾選 (Monitoring Checklist)</span>
+                            <p className="text-xs text-slate-500 font-normal mt-0.5">
+                              勾選本次追蹤之體位測量與各項生化指標，可自動格式化匯入下方追蹤計畫
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Counter Badge & Fast Actions */}
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+                            (state.monitoring.selectedIndicators?.length || 0) > 0
+                              ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}>
+                            已選取 {state.monitoring.selectedIndicators?.length || 0} / {ALL_MONITORING_INDICATOR_IDS.length} 項
+                          </span>
+                          <button
+                            type="button"
+                            onClick={selectAllMonitoringIndicators}
+                            className="px-2.5 py-1 text-xs font-bold text-purple-700 bg-purple-100/80 hover:bg-purple-200/80 rounded-lg transition-colors cursor-pointer"
+                          >
+                            全部勾選
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearMonitoringIndicators}
+                            className="px-2.5 py-1 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                          >
+                            全部清除
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Presets Toolbar */}
+                      <div className="bg-white/90 p-3 rounded-xl border border-purple-100/70 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-bold text-slate-600 flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          常用臨床組合:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {MONITORING_PRESETS.map(preset => {
+                            const isExactMatch = preset.items.every(id => state.monitoring.selectedIndicators?.includes(id)) &&
+                              state.monitoring.selectedIndicators?.length === preset.items.length;
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => applyMonitoringPreset(preset.items)}
+                                className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                                  isExactMatch
+                                    ? 'bg-purple-600 text-white shadow-xs font-bold'
+                                    : 'bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200/60'
+                                }`}
+                              >
+                                {preset.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Categorized Checkbox Panels Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {MONITORING_GROUPS.map(group => {
+                          const groupItemIds = group.items.map(i => i.id);
+                          const currentSelected = state.monitoring.selectedIndicators || [];
+                          const selectedCount = group.items.filter(i => currentSelected.includes(i.id)).length;
+                          const isAllGroupSelected = group.items.length > 0 && selectedCount === group.items.length;
+
+                          return (
+                            <div 
+                              key={group.id} 
+                              className={`bg-white rounded-xl border p-4 shadow-3xs flex flex-col justify-between transition-all ${
+                                selectedCount > 0 ? group.theme.border : 'border-slate-200/80'
+                              }`}
+                            >
+                              <div>
+                                {/* Group Card Header */}
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+                                  <div className="flex items-center gap-1.5">
+                                    {group.id === 'anthropometry' && <Scale className="w-4 h-4 text-emerald-600" />}
+                                    {group.id === 'glycemia' && <Droplet className="w-4 h-4 text-amber-500" />}
+                                    {group.id === 'lipids' && <HeartPulse className="w-4 h-4 text-rose-500" />}
+                                    {group.id === 'bloodPressure' && <Activity className="w-4 h-4 text-purple-600" />}
+                                    {group.id === 'renal' && <Activity className="w-4 h-4 text-blue-600" />}
+                                    {group.id === 'lifestyle' && <Utensils className="w-4 h-4 text-teal-600" />}
+                                    <span className="text-xs font-bold text-slate-800">{group.categoryTitle}</span>
+                                    <span className="text-[10px] text-slate-400 font-medium">({group.subTitle})</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleGroupIndicators(group.id)}
+                                    className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold cursor-pointer hover:underline"
+                                  >
+                                    {isAllGroupSelected ? '反選' : '全選'}
+                                  </button>
+                                </div>
+
+                                {/* Items Grid */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  {group.items.map(item => {
+                                    const isSelected = currentSelected.includes(item.id);
+                                    return (
+                                      <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => toggleMonitoringIndicator(item.id)}
+                                        title={item.fullName || item.label}
+                                        className={`px-2.5 py-2 rounded-lg border text-left text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                                          isSelected
+                                            ? `${group.theme.activeBg} font-bold border-transparent`
+                                            : 'bg-slate-50/70 hover:bg-slate-100/80 text-slate-700 border-slate-200/80 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        {isSelected ? (
+                                          <CheckSquare className="w-3.5 h-3.5 shrink-0 text-white" />
+                                        ) : (
+                                          <Square className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                                        )}
+                                        <span className="truncate">{item.label}</span>
+                                        {item.unit && !isSelected && (
+                                          <span className="text-[10px] text-slate-400 ml-auto hidden sm:inline">{item.unit}</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Group Footer Count */}
+                              <div className="pt-2.5 mt-2.5 border-t border-slate-100/60 flex items-center justify-between text-[11px]">
+                                <span className="text-slate-400">群組項目: {group.items.length} 項</span>
+                                <span className={`font-semibold ${selectedCount > 0 ? group.theme.activeText : 'text-slate-400'}`}>
+                                  已選 {selectedCount} 項
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Selected Items Summary Bar & Action Button */}
+                      <div className="bg-white p-4 rounded-xl border border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <span className="text-xs font-bold text-slate-600 block">目前勾選之監測指標清單:</span>
+                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                            {(state.monitoring.selectedIndicators || []).length === 0 ? (
+                              <span className="text-xs text-slate-400 italic">尚未勾選任何監測項目，點擊上方按鈕即可快速選取</span>
+                            ) : (
+                              (state.monitoring.selectedIndicators || []).map(id => (
+                                <span 
+                                  key={id}
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-purple-100/80 text-purple-800 border border-purple-200"
+                                >
+                                  {id}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleMonitoringIndicator(id)}
+                                    className="hover:text-red-600 transition-colors cursor-pointer"
+                                    title={`移除 ${id}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={insertSelectedIndicatorsToPlan}
+                            disabled={(state.monitoring.selectedIndicators || []).length === 0}
+                            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs ${
+                              (state.monitoring.selectedIndicators || []).length > 0
+                                ? 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer hover:shadow'
+                                : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                            }`}
+                          >
+                            <FileText className="w-4 h-4" />
+                            帶入下方追蹤計畫
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Part 1: Weight History Panel */}
+                  {(monitoringSubView === 'all' || monitoringSubView === 'weight') && (
+                    <motion.div 
+                      key="monitoring-weight-section"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-emerald-50/20 p-5 rounded-2xl border border-emerald-100/75 space-y-6"
+                    >
+                      <div className="flex items-center gap-2 text-emerald-800 font-bold border-b border-emerald-100 pb-2.5">
+                        <Scale className="w-5 h-5" />
+                        <span className="text-base font-bold">② 體重歷史紀錄與變化趨勢 (Weight Monitoring)</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        {/* Add Weight Form and Table */}
+                        <div className="lg:col-span-2 space-y-4">
+                          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-3xs space-y-4">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">新增體重與體位紀錄</h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-slate-500">日期</label>
+                                <input 
+                                  type="date" 
+                                  value={currentWeightRec.date}
+                                  onChange={e => setCurrentWeightRec({ ...currentWeightRec, date: e.target.value })}
+                                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-slate-500">體重 (kg) *</label>
+                                <input 
+                                  type="number" 
+                                  step="0.1"
+                                  placeholder="例如: 65.2"
+                                  value={currentWeightRec.weight}
+                                  onChange={e => setCurrentWeightRec({ ...currentWeightRec, weight: e.target.value })}
+                                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white font-medium"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-slate-500">腰圍 (cm)</label>
+                                <input 
+                                  type="number" 
+                                  step="0.1"
+                                  placeholder="例如: 82.0"
+                                  value={currentWeightRec.waist}
+                                  onChange={e => setCurrentWeightRec({ ...currentWeightRec, waist: e.target.value })}
+                                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-slate-500">體脂率 (%)</label>
+                                <input 
+                                  type="number" 
+                                  step="0.1"
+                                  placeholder="例如: 24.5"
+                                  value={currentWeightRec.bodyFat}
+                                  onChange={e => setCurrentWeightRec({ ...currentWeightRec, bodyFat: e.target.value })}
+                                  className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 bg-white"
+                                />
+                              </div>
+                              <div className="col-span-2 sm:col-span-1">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    if (currentWeightRec.date && currentWeightRec.weight) {
+                                      const newRec = {
+                                        id: Date.now().toString() + '-w',
+                                        date: currentWeightRec.date,
+                                        weight: currentWeightRec.weight,
+                                        waist: currentWeightRec.waist,
+                                        bodyFat: currentWeightRec.bodyFat
+                                      };
+                                      // sync to legacy as backup
+                                      const newLegacyRec = {
+                                        date: currentWeightRec.date,
+                                        weight: currentWeightRec.weight,
+                                        waist: currentWeightRec.waist,
+                                        bodyFat: currentWeightRec.bodyFat,
+                                        ac: '', hba1c: '', egfr: '', tg: '', ldl: '', tc: '', uricAcid: '', hdl: '', ast: '', alt: '', bp: '', other: '體重端填寫'
+                                    };
+                                    setState({
+                                      ...state,
+                                      monitoring: {
+                                        ...state.monitoring,
+                                        weightHistory: [newRec, ...(state.monitoring.weightHistory || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+                                        history: [newLegacyRec, ...state.monitoring.history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                                      }
+                                    });
+                                    setCurrentWeightRec({
+                                      date: new Date().toISOString().split('T')[0],
+                                        weight: '',
+                                        waist: '',
+                                        bodyFat: ''
+                                    });
+                                  } else {
+                                    alert('請輸入完整的日期與體重');
+                                    }
+                                  }}
+                                  className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap"
+                                >
+                                  新增紀錄
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Weight History Table */}
+                          <div className="bg-white rounded-xl border border-slate-200/80 shadow-3xs overflow-hidden">
+                            <div className="px-4 py-3 bg-slate-50/60 border-b border-slate-100 flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">體位紀錄列表 (體重 / 腰圍 / 體脂率)</span>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50/70 text-slate-500 font-bold text-xs uppercase animate-none">
+                                  <tr>
+                                    <th className="px-4 py-2">日期</th>
+                                    <th className="px-4 py-2">體重 (kg)</th>
+                                    <th className="px-4 py-2">腰圍 (cm)</th>
+                                    <th className="px-4 py-2">體脂率 (%)</th>
+                                    <th className="px-4 py-2 text-center">操作</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {sortedWeightHistory.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={5} className="px-4 py-6 text-center text-slate-400 italic">尚無體位歷史紀錄</td>
+                                    </tr>
+                                  ) : (
+                                    sortedWeightHistory.map((record, idx) => (
+                                      <tr key={record.id || idx} className="hover:bg-slate-50/40 transition-colors">
+                                        <td className="px-4 py-2.5 font-medium">{record.date}</td>
+                                        <td className="px-4 py-2.5 font-bold text-slate-700">{record.weight ? `${record.weight} kg` : '--'}</td>
+                                        <td className="px-4 py-2.5 text-slate-700">{record.waist ? `${record.waist} cm` : '--'}</td>
+                                        <td className="px-4 py-2.5 text-slate-700">{record.bodyFat ? `${record.bodyFat}%` : '--'}</td>
+                                        <td className="px-4 py-2.5 text-center">
+                                          <button 
+                                            type="button"
+                                            onClick={() => {
+                                              const newWeightHistory = (state.monitoring.weightHistory || []).filter(h => h.date !== record.date && h.id !== record.id);
+                                              const newLegacyHistory = state.monitoring.history.filter(h => h.date !== record.date);
+                                              setState({
+                                                ...state,
+                                                monitoring: {
+                                                  ...state.monitoring,
+                                                  weightHistory: newWeightHistory,
+                                                  history: newLegacyHistory
+                                                }
+                                              });
+                                            }}
+                                            className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                                            title="刪除此紀錄"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Weight Trend Chart */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-3xs flex flex-col justify-between">
+                          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">體重規律趨勢圖</h4>
+                          <div className="h-60 w-full flex-1 min-h-[220px]">
+                            {sortedWeightHistory.length < 2 ? (
+                              <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 text-xs p-5 bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
+                                <span>至少需要 2 筆以上的體重歷史數據才能繪製趨勢圖。</span>
+                              </div>
+                            ) : (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={sortedWeightHistory} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                  <XAxis dataKey="date" tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <YAxis domain={['auto', 'auto']} tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
+                                  <Line type="monotone" dataKey="weight" name="體重 (kg)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Part 2: Biochemistry History Panel */}
+                  {(monitoringSubView === 'all' || monitoringSubView === 'biochem') && (
+                    <motion.div 
+                      key="monitoring-biochem-section"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-blue-50/20 p-5 rounded-2xl border border-blue-100/75 space-y-6"
+                    >
+                      <div className="flex items-center gap-2 text-blue-800 font-bold border-b border-blue-100 pb-2.5">
+                        <Activity className="w-5 h-5 text-blue-600" />
+                        <span className="text-base font-bold">③ 生化與指標臨床追蹤 (Biochemical History)</span>
+                      </div>
+
+                      {/* Biochem Input Form */}
+                      <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-3xs space-y-4">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">新增生化與血壓指標</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">日期</label>
+                            <input 
+                              type="date" 
+                              value={currentBiochemRec.date}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, date: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">AC</label>
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              placeholder="例: 110"
+                              value={currentBiochemRec.ac}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, ac: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">HbA1c (%)</label>
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              placeholder="例: 6.8"
+                              value={currentBiochemRec.hba1c}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, hba1c: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">BUN</label>
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              placeholder="例: 15"
+                              value={currentBiochemRec.bun || ''}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, bun: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">Cr</label>
+                            <input 
+                              type="number" 
+                              step="0.01"
+                              placeholder="例: 0.9"
+                              value={currentBiochemRec.cr || ''}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, cr: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">eGFR</label>
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              placeholder="例: 94"
+                              value={currentBiochemRec.egfr}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, egfr: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">TG</label>
+                            <input 
+                              type="number" 
+                              placeholder="例: 130"
+                              value={currentBiochemRec.tg}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, tg: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">LDL</label>
+                            <input 
+                              type="number" 
+                              placeholder="例: 95"
+                              value={currentBiochemRec.ldl}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, ldl: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1 col-span-2 md:col-span-3 lg:col-span-6">
+                            <label className="text-xs font-semibold text-slate-600">TC</label>
+                            <input 
+                              type="number" 
+                              placeholder="例: 190"
+                              value={currentBiochemRec.tc}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, tc: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">UA</label>
+                            <input 
+                              type="number" 
+                              step="0.1"
+                              placeholder="例: 6.2"
+                              value={currentBiochemRec.uricAcid}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, uricAcid: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">BP</label>
+                            <input 
+                              type="text" 
+                              placeholder="例: 124/82"
+                              value={currentBiochemRec.bp}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, bp: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-medium"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-slate-600">其他生化備註</label>
+                            <input 
+                              type="text" 
+                              placeholder="例如：尿蛋白、ALT 等..."
+                              value={currentBiochemRec.other}
+                              onChange={e => setCurrentBiochemRec({ ...currentBiochemRec, other: e.target.value })}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white text-slate-800"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end pt-1">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (currentBiochemRec.date) {
+                                const newRec = {
+                                  id: Date.now().toString() + '-b',
+                                  ...currentBiochemRec
+                                };
+                                // sync to legacy as backup
+                                const newLegacyRec = {
+                                  date: currentBiochemRec.date,
+                                  weight: '',
+                                  ac: currentBiochemRec.ac,
+                                  pc: currentBiochemRec.pc || '',
+                                  hba1c: currentBiochemRec.hba1c,
+                                  bun: currentBiochemRec.bun || '',
+                                  cr: currentBiochemRec.cr || '',
+                                  egfr: currentBiochemRec.egfr,
+                                  tg: currentBiochemRec.tg,
+                                  ldl: currentBiochemRec.ldl,
+                                  tc: currentBiochemRec.tc,
+                                  uricAcid: currentBiochemRec.uricAcid,
+                                  hdl: currentBiochemRec.hdl || '',
+                                  ast: currentBiochemRec.ast || '',
+                                  alt: currentBiochemRec.alt || '',
+                                  bp: currentBiochemRec.bp,
+                                  other: currentBiochemRec.other
+                                };
+                                setState({
+                                  ...state,
+                                  monitoring: {
+                                    ...state.monitoring,
+                                    biochemHistory: [newRec, ...(state.monitoring.biochemHistory || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+                                    history: [newLegacyRec, ...state.monitoring.history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                                  }
+                                });
+                                setCurrentBiochemRec({
+                                  date: new Date().toISOString().split('T')[0],
+                                  ac: '', pc: '', hba1c: '', bun: '', cr: '', egfr: '', upcr: '', tg: '', ldl: '', tc: '', uricAcid: '', na: '', k: '', bp: '', other: '',
+                                  hdl: '', ast: '', alt: '', alb: ''
+                                });
+                              } else {
+                                alert('請填寫生化資料的日期');
+                              }
+                            }}
+                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-sm transition-colors cursor-pointer"
+                          >
+                            新增公信生化紀錄
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Biochem Table */}
+                      <div className="bg-white rounded-xl border border-slate-200/80 shadow-3xs overflow-hidden animate-none">
+                        <div className="px-4 py-3 bg-slate-50/60 border-b border-slate-100 flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">生化數值歷次追蹤紀錄</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left border-collapse">
+                            <thead className="bg-slate-50/70 text-slate-500 font-bold border-b border-slate-100 uppercase">
+                              <tr>
+                                <th className="px-3 py-2.5">日期</th>
+                                <th className="px-3 py-2.5">AC</th>
+                                <th className="px-3 py-2.5">HbA1c (%)</th>
+                                <th className="px-3 py-2.5">BUN</th>
+                                <th className="px-3 py-2.5">Cr</th>
+                                <th className="px-3 py-2.5">eGFR</th>
+                                <th className="px-3 py-2.5">TG</th>
+                                <th className="px-3 py-2.5">HDL</th>
+                                <th className="px-3 py-2.5">LDL</th>
+                                <th className="px-3 py-2.5">TC</th>
+                                <th className="px-3 py-2.5">AST</th>
+                                <th className="px-3 py-2.5">ALT</th>
+                                <th className="px-3 py-2.5">UA</th>
+                                <th className="px-3 py-2.5">BP</th>
+                                <th className="px-3 py-2.5">其他</th>
+                                <th className="px-3 py-2.5 text-center">操作</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                              {sortedBioHistory.length === 0 ? (
+                                <tr>
+                                  <td colSpan={16} className="px-3 py-6 text-center text-slate-400 italic">尚無生化指標追蹤紀錄</td>
+                                </tr>
+                              ) : (
+                                sortedBioHistory.map((record, idx) => (
+                                  <tr key={record.id || idx} className="hover:bg-slate-50/40 transition-colors">
+                                    <td className="px-3 py-2.5 font-bold text-slate-800">{record.date}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.ac || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.hba1c ? `${record.hba1c} %` : '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.bun || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.cr || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.egfr || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.tg || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.hdl || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.ldl || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.tc || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.ast || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.alt || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium">{record.uricAcid || '--'}</td>
+                                    <td className="px-3 py-2.5 font-medium font-mono">{record.bp || '--'}</td>
+                                    <td className="px-3 py-2.5 max-w-[120px] truncate" title={record.other}>{record.other || '--'}</td>
+                                    <td className="px-3 py-2.5 text-center">
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
+                                          const newBiochemHistory = (state.monitoring.biochemHistory || []).filter(h => h.date !== record.date && h.id !== record.id);
+                                          const newLegacyHistory = state.monitoring.history.filter(h => h.date !== record.date);
+                                          setState({
+                                            ...state,
+                                            monitoring: {
+                                              ...state.monitoring,
+                                              biochemHistory: newBiochemHistory,
+                                              history: newLegacyHistory
+                                            }
+                                          });
+                                        }}
+                                        className="text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                                        title="刪除此紀錄"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Biochem Trends Charts */}
+                      {sortedBioHistory.length >= 2 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-3xs">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">醣類與血壓趨勢</h4>
+                            <div className="h-56">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={sortedBioHistory as any[]} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                  <XAxis dataKey="date" tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <YAxis yAxisId="left" tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <YAxis yAxisId="right" orientation="right" tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
+                                  <Legend verticalAlign="top" iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
+                                  <Line yAxisId="left" type="monotone" dataKey="ac" name="AC" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
+                                  <Line yAxisId="right" type="monotone" dataKey="hba1c" name="HbA1c (%)" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3 }} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+
+                          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-3xs">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">腎過濾與血脂指標變動</h4>
+                            <div className="h-56">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={sortedBioHistory as any[]} margin={{ top: 10, right: 10, left: -20, bottom: 5 }}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                  <XAxis dataKey="date" tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <YAxis tick={{fontSize: 9}} stroke="#94a3b8" />
+                                  <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '8px' }} />
+                                  <Legend verticalAlign="top" iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
+                                  <Line type="monotone" dataKey="egfr" name="eGFR" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                                  <Line type="monotone" dataKey="tg" name="TG" stroke="#8b5cf6" strokeWidth={1.8} dot={{ r: 3 }} />
+                                  <Line type="monotone" dataKey="ldl" name="LDL" stroke="#3b82f6" strokeWidth={1.8} dot={{ r: 3 }} />
+                                  <Line type="monotone" dataKey="tc" name="TC" stroke="#e11d48" strokeWidth={1.8} dot={{ r: 3 }} />
+                                  <Line type="monotone" dataKey="uricAcid" name="UA" stroke="#84cc16" strokeWidth={1.8} dot={{ r: 3 }} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* Plan & Dates */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <Calendar className="w-4 h-4 text-purple-600" />
+                        下次諮詢追蹤日期
+                      </label>
+                      <div className="relative w-64">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="date" 
+                          value={state.monitoring.nextDate || ''}
+                          onChange={e => setState({
+                            ...state, 
+                            monitoring: { ...state.monitoring, nextDate: e.target.value }
+                          })}
+                          className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-purple-500/20"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-slate-700">後續追蹤計畫與備註 (Monitoring Plan)</label>
+                      <textarea 
+                        rows={4}
+                        value={state.monitoring.plan || ''}
+                        onChange={e => setState({
+                          ...state, 
+                          monitoring: { ...state.monitoring, plan: e.target.value }
+                        })}
+                        placeholder="在此規劃下一次追蹤的生化數據、體重指標或飲食遵從性要求..."
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-purple-500/30 outline-none transition-all text-sm"
+                      ></textarea>
+                    </div>
+                  </div>
+
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'reminder' && (
+            <motion.div
+              key="reminder"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-wrap justify-between items-center gap-3">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-blue-600" />
+                    營養諮詢小提醒
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    {copySuccessMsg && (
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full animate-fade-in flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" />
+                        {copySuccessMsg}
+                      </span>
+                    )}
+                    {state.counselingType === '減重營養方針' && (
+                      <button 
+                        onClick={handleCopyWeightCard}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                        title="將減重個人化追蹤卡格式複製到剪貼簿，可直接貼入 LINE、Notion 或病歷系統"
+                      >
+                        <Copy className="w-4 h-4" />
+                        複製追蹤卡 (LINE/Notion)
+                      </button>
+                    )}
+                    <button 
+                    onClick={handleDownloadWord}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <FileDown className="w-4 h-4" />
+                    下載 WORD
+                  </button>
+                 </div>
+                </div>
+                <div id="counseling-reminder-content" className="p-6 space-y-8 bg-white">
+                  {/* (2) 諮詢細節 */}
+                  <div className="space-y-4">
+                    <h3 className="text-md font-bold text-blue-700 border-b pb-2">諮詢細節</h3>
+                    
+                    {/* Basic Info integrated here */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-3 rounded-lg border border-slate-100 mb-4">
+                      <div><span className="text-slate-500">姓名：</span>{state.clientHx.name || '--'}</div>
+                      <div><span className="text-slate-500">生日：</span>{state.clientHx.birthday || '--'}</div>
+                      <div><span className="text-slate-500">身高：</span>{state.anthropometry.height || '--'} cm</div>
+                      <div><span className="text-slate-500">體重：</span>{state.anthropometry.weight || '--'} kg</div>
+                      <div><span className="text-slate-500">BMI：</span>{state.anthropometry.bmi || '--'}</div>
+                      <div><span className="text-slate-500">腰圍：</span>{state.anthropometry.waist || '--'} cm</div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500">諮詢類型</label>
+                        <select 
+                          value={state.counselingType || ''} 
+                          onChange={e => {
+                            const newType = e.target.value;
+                            const updates: any = { counselingType: newType };
+                            if (newType === '減重營養方針' && !state.reminderNotes) {
+                              updates.reminderNotes = `* 減重以穩定、可持續為原則，不建議極端節食或跳過正餐。
+                                                        * 體重會受到水分、排便、飲食及生理週期影響，短期波動不代表減重失敗。
+                                                        * 若出現持續明顯飢餓、頭暈、虛弱或飲食難以維持，請與營養師討論調整。
+                                                        * 若有糖尿病、腎臟疾病、心血管疾病或正在使用藥物，飲食與減重策略應依個人疾病及治療狀況調整。
+                                                        * 不用一次做到全部，先完成本週設定的 1–2 個目標。`;
+                            }
+                            setState({ ...state, ...updates });
+                          }}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium"
+                        >
+                          <option>糖尿病營養方針</option>
+                          <option>減重營養方針</option>
+                          <option>腎臟病營養方針</option>
+                          <option>高血脂營養方針</option>
+                          <option>糖尿病 x 腎臟病 營養方針</option>
+                          <option>痛風（高尿酸）營養方針</option>
+                          <option>糖尿病 x 腎臟病 x 高血脂 營養方針</option>
+                        </select>
+                      </div>
+                      {state.counselingType === '減重營養方針' && (
+                        <div className="space-y-1 md:col-span-2">
+                          <label className="text-xs font-medium text-slate-500">減重核心目標 / 階段</label>
+                          <div className="flex flex-wrap gap-3 h-[38px] items-center">
+                            <GuidelineCheckbox label="減脂增肌" id="weight_diag_fat_loss" state={state} setState={setState} />
+                            <GuidelineCheckbox label="體重控制" id="weight_diag_obese" state={state} setState={setState} />
+                            <GuidelineCheckbox label="維持肌肉量" id="weight_diag_keep_muscle" state={state} setState={setState} />
+                            <GuidelineCheckbox label="作息與飲食行為調整" id="weight_diag_lifestyle" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      )}
+                      {state.counselingType === '糖尿病營養方針' && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-500">類型</label>
+                          <div className="flex gap-4 h-[38px] items-center">
+                            <GuidelineCheckbox label="糖尿病" id="dm_type_dm" state={state} setState={setState} />
+                            <GuidelineCheckbox label="糖尿病前期" id="dm_type_predm" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      )}
+                      {state.counselingType === '腎臟病營養方針' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">腎臟病分期</label>
+                            <div className="flex flex-wrap gap-2 items-center min-h-[38px]">
+                              {['第1期', '第2期', '第3期', '第4期', '第5期'].map(stage => (
+                                <GuidelineCheckbox key={stage} label={stage} id={`ckd_stage_${stage}`} state={state} setState={setState} />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否透析</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="ckd_dialysis_no" state={state} setState={setState} />
+                              <GuidelineCheckbox label="是" id="ckd_dialysis_yes" state={state} setState={setState} />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {state.counselingType === '高血脂營養方針' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">診斷</label>
+                            <div className="flex flex-wrap gap-2 items-center min-h-[38px]">
+                              <GuidelineCheckbox label="高血脂" id="hld_diag_hld" state={state} setState={setState} />
+                              <GuidelineCheckbox label="高膽固醇" id="hld_diag_hc" state={state} setState={setState} />
+                              <GuidelineCheckbox label="高三酸甘油脂" id="hld_diag_htg" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否用藥</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="hld_med_no" state={state} setState={setState} />
+                              <div className="flex items-center gap-2">
+                                <GuidelineCheckbox label="是" id="hld_med_yes" state={state} setState={setState} />
+                                <input type="text" value={state.guidelineSelections['hld_med_name'] || ''} onChange={e => setSelection('hld_med_name', e.target.value)} className="w-24 border-b border-slate-300 text-center outline-none text-xs" placeholder="藥名" />
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {state.counselingType === '糖尿病 x 腎臟病 營養方針' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">診斷</label>
+                            <div className="flex flex-wrap gap-2 items-center min-h-[38px]">
+                              <GuidelineCheckbox label="糖尿病" id="dmckd_diag_dm" state={state} setState={setState} />
+                              <div className="flex items-center gap-2">
+                                <GuidelineCheckbox label="腎臟病" id="dmckd_diag_ckd" state={state} setState={setState} />
+                                <span>第</span>
+                                <input type="text" value={state.guidelineSelections['dmckd_ckd_stage'] || ''} onChange={e => setSelection('dmckd_ckd_stage', e.target.value)} className="w-12 border-b border-slate-300 text-center outline-none text-sm" />
+                                <span>期</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否透析</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="dmckd_dialysis_no" state={state} setState={setState} />
+                              <GuidelineCheckbox label="是" id="dmckd_dialysis_yes" state={state} setState={setState} />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {state.counselingType === '痛風（高尿酸）營養方針' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">診斷</label>
+                            <div className="flex flex-wrap gap-2 items-center min-h-[38px]">
+                              <GuidelineCheckbox label="高尿酸血症" id="gout_diag_hua" state={state} setState={setState} />
+                              <GuidelineCheckbox label="痛風" id="gout_diag_gout" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">急性發作期</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="gout_acute_no" state={state} setState={setState} />
+                              <GuidelineCheckbox label="是" id="gout_acute_yes" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否用藥</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="gout_med_no" state={state} setState={setState} />
+                              <div className="flex items-center gap-2">
+                                <GuidelineCheckbox label="是" id="gout_med_yes" state={state} setState={setState} />
+                                <input type="text" value={state.guidelineSelections['gout_med_name'] || ''} onChange={e => setSelection('gout_med_name', e.target.value)} className="w-24 border-b border-slate-300 text-center outline-none text-xs" placeholder="藥名" />
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {state.counselingType === '糖尿病 x 腎臟病 x 高血脂 營養方針' && (
+                        <>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">診斷</label>
+                            <div className="flex flex-wrap gap-2 items-center min-h-[38px]">
+                              <GuidelineCheckbox label="糖尿病" id="met_diag_dm" state={state} setState={setState} />
+                              <GuidelineCheckbox label="高血脂" id="met_diag_hld" state={state} setState={setState} />
+                              <div className="flex items-center gap-2">
+                                <GuidelineCheckbox label="腎臟病" id="met_diag_ckd" state={state} setState={setState} />
+                                <span>第</span>
+                                <input type="text" value={state.guidelineSelections['met_ckd_stage'] || ''} onChange={e => setSelection('met_ckd_stage', e.target.value)} className="w-12 border-b border-slate-300 text-center outline-none text-sm" />
+                                <span>期</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否透析</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="met_dialysis_no" state={state} setState={setState} />
+                              <GuidelineCheckbox label="是" id="met_dialysis_yes" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-slate-500">是否用藥</label>
+                            <div className="flex gap-4 h-[38px] items-center">
+                              <GuidelineCheckbox label="否" id="met_med_no" state={state} setState={setState} />
+                              <div className="flex items-center gap-2">
+                                <GuidelineCheckbox label="是" id="met_med_yes" state={state} setState={setState} />
+                                <input type="text" value={state.guidelineSelections['met_med_name'] || ''} onChange={e => setSelection('met_med_name', e.target.value)} className="w-24 border-b border-slate-300 text-center outline-none text-xs" placeholder="藥名" />
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500">諮詢日期</label>
+                        <input 
+                          type="date" 
+                          value={state.consultDate || ''} 
+                          onChange={e => setState({...state, consultDate: e.target.value})}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-500">營養師</label>
+                        <input 
+                          type="text" 
+                          value={state.dietitian || ''} 
+                          onChange={e => setState({...state, dietitian: e.target.value})}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* (3) 生化數據 */}
+                  <div className="space-y-4">
+                    <h3 className="text-md font-bold text-blue-700 border-b pb-2">生化數據</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 text-xs">
+                      {Object.entries(state.biochemistry).map(([key, val]) => (
+                        <div key={key} className="border p-2 rounded bg-slate-50">
+                          <div className="text-slate-500 font-medium">{key}</div>
+                          <div className="text-sm font-bold">{val || '--'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* (3.5) 飲食風險評估 */}
+                  {state.counselingType === '減重營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食與生活習慣風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="常喝含糖飲料（手搖飲/果汁/汽水）" id="weight_risk_sugar_drinks" state={state} setState={setState} />
+                        <GuidelineCheckbox label="主食吃太多（甜麵包/蛋糕/餅乾/精緻麵食）" id="weight_risk_too_much_carbs" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常吃甜點/零食/宵夜" id="weight_risk_sweets" state={state} setState={setState} />
+                        <GuidelineCheckbox label="外食頻率高／常吃油炸或濃稠勾芡醬汁" id="weight_risk_eating_out" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蔬菜攝取不足（每餐少於半碗）" id="weight_risk_no_veg" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常單吃澱粉類（麵包配飲料、稀飯配醬菜）" id="weight_risk_only_starch" state={state} setState={setState} />
+                        <GuidelineCheckbox label="容易嘴饞／額外吃點心" id="weight_risk_cravings" state={state} setState={setState} />
+                        <GuidelineCheckbox label="進食速度太快／容易過飽" id="weight_risk_fast_eating" state={state} setState={setState} />
+                        <GuidelineCheckbox label="用餐時間不固定／常跳過正餐" id="weight_risk_irregular_meals" state={state} setState={setState} />
+                        <GuidelineCheckbox label="缺乏日常身體活動或運動習慣" id="weight_risk_sedentary" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他飲食/生活風險..." 
+                        value={state.guidelineSelections['weight_risk_other'] || ''}
+                        onChange={e => setSelection('weight_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '糖尿病營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="常喝含糖飲料" id="dm_risk_sugar_drinks" state={state} setState={setState} />
+                        <GuidelineCheckbox label="主食吃太多（飯/麵/麵包）" id="dm_risk_too_much_carbs" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常吃甜點/零食" id="dm_risk_sweets" state={state} setState={setState} />
+                        <GuidelineCheckbox label="外食頻率高" id="dm_risk_eating_out" state={state} setState={setState} />
+                        <GuidelineCheckbox label="幾乎不吃蔬菜" id="dm_risk_no_veg" state={state} setState={setState} />
+                        <GuidelineCheckbox label="用餐時間不固定" id="dm_risk_irregular_meals" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['dm_risk_other'] || ''}
+                        onChange={e => setSelection('dm_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '腎臟病營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="蛋白質攝取過多" id="ckd_risk_too_much_pro" state={state} setState={setState} />
+                        <GuidelineCheckbox label="高鹽飲食（外食、加工品）" id="ckd_risk_high_salt" state={state} setState={setState} />
+                        <GuidelineCheckbox label="水分控制不佳" id="ckd_risk_water_control" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常喝含糖飲料" id="ckd_risk_sugar_drinks" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蔬菜水果攝取不均" id="ckd_risk_veg_fruit_unbalanced" state={state} setState={setState} />
+                        <GuidelineCheckbox label="不清楚食物鉀/磷含量" id="ckd_risk_unknown_k_p" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['ckd_risk_other'] || ''}
+                        onChange={e => setSelection('ckd_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '高血脂營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="常吃油炸食物" id="hld_risk_fried" state={state} setState={setState} />
+                        <GuidelineCheckbox label="偏好肥肉／皮" id="hld_risk_fatty_meat" state={state} setState={setState} />
+                        <GuidelineCheckbox label="攝取過多加工肉品" id="hld_risk_processed_meat" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常吃精製澱粉" id="hld_risk_refined_starch" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常喝含糖飲料／酒精" id="hld_risk_sugar_alcohol" state={state} setState={setState} />
+                        <GuidelineCheckbox label="外食頻率高" id="hld_risk_eating_out" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蔬菜攝取不足" id="hld_risk_no_veg" state={state} setState={setState} />
+                        <GuidelineCheckbox label="水果過量" id="hld_risk_too_much_fruit" state={state} setState={setState} />
+                        <GuidelineCheckbox label="缺乏運動" id="hld_risk_no_exercise" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['hld_risk_other'] || ''}
+                        onChange={e => setSelection('hld_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '糖尿病 x 腎臟病 營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="主食過多" id="dmckd_risk_too_much_carbs" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常喝含糖飲料" id="dmckd_risk_sugar_drinks" state={state} setState={setState} />
+                        <GuidelineCheckbox label="愛吃甜點" id="dmckd_risk_sweets" state={state} setState={setState} />
+                        <GuidelineCheckbox label="高鹽飲食" id="dmckd_risk_high_salt" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常喝湯" id="dmckd_risk_soup" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蔬菜水果攝取不均" id="dmckd_risk_veg_fruit_unbalanced" state={state} setState={setState} />
+                        <GuidelineCheckbox label="飲食不規律" id="dmckd_risk_irregular_meals" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蛋白質攝取過多" id="dmckd_risk_too_much_pro" state={state} setState={setState} />
+                        <GuidelineCheckbox label="水分控制不佳" id="dmckd_risk_water_control" state={state} setState={setState} />
+                        <GuidelineCheckbox label="不清楚食物鉀/磷含量" id="dmckd_risk_unknown_k_p" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['dmckd_risk_other'] || ''}
+                        onChange={e => setSelection('dmckd_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '痛風（高尿酸）營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="常吃高普林食物" id="gout_risk_high_purine" state={state} setState={setState} />
+                        <GuidelineCheckbox label="愛喝含糖飲料" id="gout_risk_sugar_drinks" state={state} setState={setState} />
+                        <GuidelineCheckbox label="有飲酒習慣" id="gout_risk_alcohol" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常吃大魚大肉" id="gout_risk_too_much_meat" state={state} setState={setState} />
+                        <GuidelineCheckbox label="水分攝取不足" id="gout_risk_no_water" state={state} setState={setState} />
+                        <GuidelineCheckbox label="外食頻率高" id="gout_risk_eating_out" state={state} setState={setState} />
+                        <GuidelineCheckbox label="高油飲食" id="gout_risk_high_fat" state={state} setState={setState} />
+                        <GuidelineCheckbox label="體重過重／肥胖" id="gout_risk_obese" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['gout_risk_other'] || ''}
+                        onChange={e => setSelection('gout_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                  {state.counselingType === '糖尿病 x 腎臟病 x 高血脂 營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食風險評估</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                        <GuidelineCheckbox label="主食過多／精製澱粉" id="dmckdhld_risk_too_much_carbs" state={state} setState={setState} />
+                        <GuidelineCheckbox label="含糖飲料／甜點" id="dmckdhld_risk_sugar_sweets" state={state} setState={setState} />
+                        <GuidelineCheckbox label="高鹽飲食" id="dmckdhld_risk_high_salt" state={state} setState={setState} />
+                        <GuidelineCheckbox label="高油飲食" id="dmckdhld_risk_high_fat" state={state} setState={setState} />
+                        <GuidelineCheckbox label="常喝湯" id="dmckdhld_risk_soup" state={state} setState={setState} />
+                        <GuidelineCheckbox label="蔬菜攝取不足" id="dmckdhld_risk_no_veg" state={state} setState={setState} />
+                        <GuidelineCheckbox label="水果過量" id="dmckdhld_risk_too_much_fruit" state={state} setState={setState} />
+                        <GuidelineCheckbox label="外食頻率高" id="dmckdhld_risk_eating_out" state={state} setState={setState} />
+                        <GuidelineCheckbox label="壓力大／作息不規律" id="dmckdhld_risk_stress_routine" state={state} setState={setState} />
+                        <GuidelineCheckbox label="缺乏運動" id="dmckdhld_risk_no_exercise" state={state} setState={setState} />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="其他風險..." 
+                        value={state.guidelineSelections['dmckdhld_risk_other'] || ''}
+                        onChange={e => setSelection('dmckdhld_risk_other', e.target.value)}
+                        className="w-full px-3 py-2 rounded border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+
+                  {/* (4) 營養控制目標 */}
+                  <div className="space-y-4">
+                    <h3 className="text-md font-bold text-blue-700 border-b pb-2">營養控制目標</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                        <div className="text-xs text-blue-600 font-bold uppercase mb-1">熱量 (kcal/天)</div>
+                        <input 
+                          type="text" 
+                          value={state.diet.targetKcal || ''} 
+                          onChange={e => setState({...state, diet: {...state.diet, targetKcal: e.target.value}})}
+                          className="text-2xl font-bold text-blue-700 bg-transparent border-none focus:ring-0 w-full"
+                        />
+                      </div>
+                      <div className="p-4 bg-green-50 rounded-xl border border-green-100">
+                        <div className="text-xs text-green-600 font-bold uppercase mb-1">醣類 (公克/天)</div>
+                        <div className="text-2xl font-bold text-green-700">
+                          {recommendedMacros?.carbs || '--'} g
+                        </div>
+                      </div>
+                      <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
+                        <div className="text-xs text-purple-600 font-bold uppercase mb-1">蛋白質 (公克/天)</div>
+                        <div className="text-2xl font-bold text-purple-700">
+                          {recommendedMacros?.protein || '--'} g
+                        </div>
+                      </div>
+
+                      {/* Merged Guideline Specific Goals */}
+                      {state.counselingType === '減重營養方針' && (
+                        <>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">下次目標體重</div>
+                            <div className="flex items-center gap-1">
+                              <input 
+                                type="text" 
+                                value={state.guidelineSelections['weight_goal_target_kg'] || ''} 
+                                onChange={e => setSelection('weight_goal_target_kg', e.target.value)} 
+                                placeholder="例如 65"
+                                className="w-20 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg text-slate-800" 
+                              />
+                              <span className="text-slate-500 font-medium">kg</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 mt-0.5">基準體重: {state.anthropometry.weight || '--'} kg</span>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">建議飲水量</div>
+                            <div className="flex items-center gap-1">
+                              <input 
+                                type="text" 
+                                value={state.guidelineSelections['weight_goal_water'] || ''} 
+                                onChange={e => setSelection('weight_goal_water', e.target.value)} 
+                                placeholder={state.anthropometry.weight ? `${Math.round(parseFloat(state.anthropometry.weight) * 30)}~${Math.round(parseFloat(state.anthropometry.weight) * 35)}` : '2000'}
+                                className="w-24 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg text-slate-800" 
+                              />
+                              <span className="text-slate-500 font-medium">mL/天</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 mt-0.5">以體重 × 30~35 mL 估算</span>
+                          </div>
+                        </>
+                      )}
+                      {state.counselingType === '糖尿病營養方針' && (
+                        <>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">HbA1c 目標</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['dm_goal_hba1c'] || ''} onChange={e => setSelection('dm_goal_hba1c', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">%</span>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">血壓目標</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['dm_goal_bp'] || ''} onChange={e => setSelection('dm_goal_bp', e.target.value)} className="w-24 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">mmHg</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {(state.counselingType === '腎臟病營養方針' || state.counselingType === '糖尿病 x 腎臟病 營養方針') && (
+                        <>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">鈉 (Na)</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections[state.counselingType === '腎臟病營養方針' ? 'ckd_goal_na' : 'dmckd_goal_na'] || ''} onChange={e => setSelection(state.counselingType === '腎臟病營養方針' ? 'ckd_goal_na' : 'dmckd_goal_na', e.target.value)} className="w-20 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">mg</span>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">鉀 (K)</div>
+                            <div className="flex gap-4 items-center">
+                              <GuidelineCheckbox label="限制" id={state.counselingType === '腎臟病營養方針' ? 'ckd_goal_k_limit' : 'dmckd_goal_k_limit'} state={state} setState={setState} />
+                              <GuidelineCheckbox label="不需限制" id={state.counselingType === '腎臟病營養方針' ? 'ckd_goal_k_no_limit' : 'dmckd_goal_k_no_limit'} state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">磷 (P)</div>
+                            <div className="flex gap-4 items-center">
+                              <GuidelineCheckbox label="限制" id={state.counselingType === '腎臟病營養方針' ? 'ckd_goal_p_limit' : 'dmckd_goal_p_limit'} state={state} setState={setState} />
+                              <GuidelineCheckbox label="不需限制" id={state.counselingType === '腎臟病營養方針' ? 'ckd_goal_p_no_limit' : 'dmckd_goal_p_no_limit'} state={state} setState={setState} />
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {state.counselingType === '高血脂營養方針' && (
+                        <>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">LDL-C 目標</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['hld_goal_ldl'] || ''} onChange={e => setSelection('hld_goal_ldl', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">mg/dL</span>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">TG 目標</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['hld_goal_tg'] || ''} onChange={e => setSelection('hld_goal_tg', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">mg/dL</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {state.counselingType === '糖尿病 x 腎臟病 x 高血脂 營養方針' && (
+                        <>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">飽和脂肪</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['dmckdhld_goal_sat_fat'] || ''} onChange={e => setSelection('dmckdhld_goal_sat_fat', e.target.value)} className="w-12 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">%</span>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">鈉 (Na)</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">&lt;</span>
+                              <input type="text" value={state.guidelineSelections['dmckdhld_goal_na'] || ''} onChange={e => setSelection('dmckdhld_goal_na', e.target.value)} className="w-20 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">mg</span>
+                            </div>
+                          </div>
+                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-center">
+                            <div className="text-xs text-slate-500 font-bold uppercase mb-1">膳食纖維</div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-slate-700">≥</span>
+                              <input type="text" value={state.guidelineSelections['dmckdhld_goal_fiber'] || ''} onChange={e => setSelection('dmckdhld_goal_fiber', e.target.value)} className="w-12 border-b border-slate-300 text-center outline-none bg-transparent font-bold text-lg" />
+                              <span className="text-slate-500">g</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* (4.5) 營養方針 */}
+                  {state.counselingType === '減重營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2 flex items-center justify-between">
+                        <span>減重營養方針重點</span>
+                        <span className="text-xs text-slate-500 font-normal">可勾選本次諮詢重點，將自動同步至追蹤卡與匯出</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-bold text-blue-700 flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center justify-center font-bold">1</span>
+                            ① 醣類
+                          </h4>
+                          <div className="space-y-1.5 pl-1">
+                            <GuidelineCheckbox label="每餐固定主食份量，避免忽多忽少" id="weight_guide_fixed_carbs" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少精製糖及精製澱粉" id="weight_guide_less_sugar" state={state} setState={setState} />
+                            <GuidelineCheckbox label="主食優先選擇：糙米、五穀飯、全穀、地瓜" id="weight_guide_whole_grain" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少：甜麵包、蛋糕、餅乾、精緻麵食" id="weight_guide_less_bakery" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免額外勾芡、糖醋、濃稠醬汁" id="weight_guide_no_thickening" state={state} setState={setState} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-bold text-emerald-700 flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 text-xs flex items-center justify-center font-bold">2</span>
+                            ② 纖維
+                          </h4>
+                          <div className="space-y-1.5 pl-1">
+                            <GuidelineCheckbox label="每餐至少半碗蔬菜" id="weight_guide_veg_half_bowl" state={state} setState={setState} />
+                            <GuidelineCheckbox label="優先選擇多種類、不同顏色蔬菜" id="weight_guide_veg_colors" state={state} setState={setState} />
+                            <GuidelineCheckbox label="建議進食順序：先吃菜 → 蛋白質 → 最後吃主食" id="weight_guide_eat_order" state={state} setState={setState} />
+                            <GuidelineCheckbox label="水果適量，不以果汁取代水果" id="weight_guide_fruit_mod" state={state} setState={setState} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-bold text-amber-700 flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-xs flex items-center justify-center font-bold">3</span>
+                            ③ 蛋白質
+                          </h4>
+                          <div className="space-y-1.5 pl-1">
+                            <GuidelineCheckbox label="每餐搭配一份蛋白質" id="weight_guide_protein_match" state={state} setState={setState} />
+                            <GuidelineCheckbox label="優先選擇：魚、雞肉、蛋、豆腐、豆製品" id="weight_guide_protein_priority" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免只吃澱粉類（麵包+飲料、稀飯+醬菜、麵+飲料）" id="weight_guide_no_only_starch" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減重期間注意蛋白質攝取，以維持肌肉量" id="weight_guide_keep_muscle" state={state} setState={setState} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 p-3 bg-slate-50/70 rounded-xl border border-slate-100">
+                          <h4 className="text-sm font-bold text-purple-700 flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-800 text-xs flex items-center justify-center font-bold">4</span>
+                            ④ 含糖飲料
+                          </h4>
+                          <div className="space-y-1.5 pl-1">
+                            <GuidelineCheckbox label="完全避免含糖飲料（手搖飲、汽水、果汁、甜咖啡、運動飲料）" id="weight_guide_no_sugar_drinks" state={state} setState={setState} />
+                            <GuidelineCheckbox label="飲料改成：水／無糖茶／無糖咖啡" id="weight_guide_tea_water" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {state.counselingType === '糖尿病營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">糖尿病營養方針</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">① 醣類</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐固定醣量" id="dm_guide_fixed_carbs" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少精製糖" id="dm_guide_less_sugar" state={state} setState={setState} />
+                            <GuidelineCheckbox label="主食替換：糙米 / 全穀" id="dm_guide_whole_grain" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免勾芡" id="dm_guide_no_thickening" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">② 纖維</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐至少半碗蔬菜" id="dm_guide_veg_half_bowl" state={state} setState={setState} />
+                            <GuidelineCheckbox label="先吃菜 → 再吃飯" id="dm_guide_veg_first" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">③ 蛋白質</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐搭配蛋白質" id="dm_guide_protein_match" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免只吃澱粉" id="dm_guide_no_only_starch" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">④ 含糖飲料</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="完全避免含糖飲料" id="dm_guide_no_sugar_drinks" state={state} setState={setState} />
+                            <GuidelineCheckbox label="改無糖茶 / 水" id="dm_guide_tea_water" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {state.counselingType === '腎臟病營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">腎臟病營養方針</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">① 蛋白質管理</h4>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-sm">
+                              <GuidelineCheckbox label="控制蛋白質" id="ckd_guide_pro_control" state={state} setState={setState} />
+                              <input type="text" value={state.guidelineSelections['ckd_guide_pro_val'] || ''} onChange={e => setSelection('ckd_guide_pro_val', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none" />
+                              <span>g/kg</span>
+                            </div>
+                            <GuidelineCheckbox label="優先高生物價蛋白" id="ckd_guide_hbv_pro" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免過量肉類" id="ckd_guide_no_excess_meat" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">② 鈉控制</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="減少鹽巴（<5g/天）" id="ckd_guide_less_salt" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免加工食品" id="ckd_guide_no_processed" state={state} setState={setState} />
+                            <GuidelineCheckbox label="少喝湯" id="ckd_guide_less_soup" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">③ 鉀與磷控制</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="避免高鉀食物" id="ckd_guide_no_high_k" state={state} setState={setState} />
+                            <GuidelineCheckbox label="蔬菜先汆燙" id="ckd_guide_veg_blanch" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少加工食品（含磷添加物）" id="ckd_guide_no_p_additive" state={state} setState={setState} />
+                            <GuidelineCheckbox label="少喝可樂類飲料" id="ckd_guide_no_cola" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {state.counselingType === '高血脂營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">高血脂營養方針</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">① 降低壞膽固醇 (LDL)</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="減少飽和脂肪" id="hld_guide_less_sat_fat" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免反式脂肪" id="hld_guide_no_trans_fat" state={state} setState={setState} />
+                            <GuidelineCheckbox label="少吃內臟類" id="hld_guide_less_organ" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">② 降低三酸甘油脂 (TG)</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="減少含糖飲料與甜點" id="hld_guide_no_sugar_sweets" state={state} setState={setState} />
+                            <GuidelineCheckbox label="控制精製澱粉" id="hld_guide_control_starch" state={state} setState={setState} />
+                            <GuidelineCheckbox label="限制酒精攝取" id="hld_guide_limit_alcohol" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">③ 好油與纖維</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="使用植物油" id="hld_guide_veg_oil" state={state} setState={setState} />
+                            <GuidelineCheckbox label="每日適量堅果" id="hld_guide_nuts" state={state} setState={setState} />
+                            <GuidelineCheckbox label="每餐至少半碗蔬菜" id="hld_guide_veg_half_bowl" state={state} setState={setState} />
+                            <GuidelineCheckbox label="攝取全穀類" id="hld_guide_whole_grain" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {state.counselingType === '糖尿病 x 腎臟病 營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">糖尿病 x 腎臟病 營養方針</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">① 控醣＋穩血糖</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐固定醣量" id="dmckd_guide_fixed_carbs" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少精製糖" id="dmckd_guide_less_sugar" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免勾芡" id="dmckd_guide_no_thickening" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">② 蛋白質與鈉控制</h4>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-sm">
+                              <GuidelineCheckbox label="控制蛋白質" id="dmckd_guide_pro_control" state={state} setState={setState} />
+                              <input type="text" value={state.guidelineSelections['dmckd_guide_pro_val'] || ''} onChange={e => setSelection('dmckd_guide_pro_val', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none" />
+                              <span>g/kg</span>
+                            </div>
+                            <GuidelineCheckbox label="減少鹽巴（<5g/天）" id="dmckd_guide_less_salt" state={state} setState={setState} />
+                            <GuidelineCheckbox label="少喝湯" id="dmckd_guide_less_soup" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">③ 纖維與代謝</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐至少吃半碗蔬菜" id="dmckd_guide_veg_half_bowl" state={state} setState={setState} />
+                            <GuidelineCheckbox label="先吃菜再吃飯" id="dmckd_guide_veg_first" state={state} setState={setState} />
+                            <GuidelineCheckbox label="完全避免含糖飲料" id="dmckd_guide_no_sugar_drinks" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {state.counselingType === '痛風（高尿酸）營養方針' && (
+                    <>
+                      <div className="space-y-4">
+                        <h3 className="text-md font-bold text-blue-700 border-b pb-2">痛風營養方針</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-bold text-slate-600">① 降低尿酸生成</h4>
+                            <div className="space-y-1">
+                              <GuidelineCheckbox label="避免高普林食物" id="gout_guide_no_high_purine" state={state} setState={setState} />
+                              <GuidelineCheckbox label="海鮮與肉類適量" id="gout_guide_mod_meat_seafood" state={state} setState={setState} />
+                              <GuidelineCheckbox label="優先選擇低普林蛋白" id="gout_guide_low_purine_pro" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-bold text-slate-600">② 減少尿酸上升因子</h4>
+                            <div className="space-y-1">
+                              <GuidelineCheckbox label="避免含糖飲料（果糖）" id="gout_guide_no_fructose" state={state} setState={setState} />
+                              <GuidelineCheckbox label="限制酒精（尤其啤酒）" id="gout_guide_limit_alcohol" state={state} setState={setState} />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-bold text-slate-600">③ 促進尿酸排除</h4>
+                            <div className="space-y-1">
+                              <GuidelineCheckbox label="每日飲水 ≥2000 mL" id="gout_guide_water_2000" state={state} setState={setState} />
+                              <GuidelineCheckbox label="分次補充水分" id="gout_guide_water_split" state={state} setState={setState} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <h3 className="text-md font-bold text-blue-700 border-b pb-2">飲食紅黃綠燈</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                            <div className="font-bold text-red-700 mb-1">🔴 避免 (高普林)</div>
+                            <ul className="list-disc list-inside text-xs text-red-600 space-y-1">
+                              <li>內臟 (肝、腎)</li>
+                              <li>小魚乾、沙丁魚、鯖魚</li>
+                              <li>濃肉湯</li>
+                            </ul>
+                          </div>
+                          <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-100">
+                            <div className="font-bold text-yellow-700 mb-1">🟡 適量 (中普林)</div>
+                            <ul className="list-disc list-inside text-xs text-yellow-600 space-y-1">
+                              <li>雞肉、豬肉、魚類</li>
+                              <li>豆類</li>
+                            </ul>
+                          </div>
+                          <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                            <div className="font-bold text-green-700 mb-1">🟢 建議 (低普林)</div>
+                            <ul className="list-disc list-inside text-xs text-green-600 space-y-1">
+                              <li>蛋、牛奶、優格</li>
+                              <li>多數蔬菜</li>
+                              <li>全穀類</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {state.counselingType === '糖尿病 x 腎臟病 x 高血脂 營養方針' && (
+                    <div className="space-y-4">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2">糖尿病 x 腎臟病 x 高血脂 營養方針</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">① 控醣 × 穩血糖</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="每餐固定醣量" id="dmckdhld_guide_fixed_carbs" state={state} setState={setState} />
+                            <GuidelineCheckbox label="選擇低GI主食" id="dmckdhld_guide_low_gi" state={state} setState={setState} />
+                            <GuidelineCheckbox label="減少精製糖" id="dmckdhld_guide_less_sugar" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">② 蛋白質控制（減緩腎臟負擔）</h4>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-sm">
+                              <GuidelineCheckbox label="控制蛋白質" id="dmckdhld_guide_pro_control" state={state} setState={setState} />
+                              <span>(</span>
+                              <input type="text" value={state.guidelineSelections['dmckdhld_guide_pro_val'] || ''} onChange={e => setSelection('dmckdhld_guide_pro_val', e.target.value)} className="w-16 border-b border-slate-300 text-center outline-none" />
+                              <span>g/kg)</span>
+                            </div>
+                            <GuidelineCheckbox label="選擇高生物價蛋白" id="dmckdhld_guide_hbv_pro" state={state} setState={setState} />
+                            <GuidelineCheckbox label="避免大魚大肉" id="dmckdhld_guide_no_excess_meat" state={state} setState={setState} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-bold text-slate-600">③ 低鈉飲食 × 穩血脂</h4>
+                          <div className="space-y-1">
+                            <GuidelineCheckbox label="減少鹽分攝取" id="dmckdhld_guide_less_salt" state={state} setState={setState} />
+                            <GuidelineCheckbox label="攝取好油脂" id="dmckdhld_guide_good_fat" state={state} setState={setState} />
+                            <GuidelineCheckbox label="增加膳食纖維" id="dmckdhld_guide_more_fiber" state={state} setState={setState} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* (4.6) 追蹤指標+營養計畫 */}
+                  {(state.counselingType === '減重營養方針' || state.counselingType === '糖尿病營養方針' || state.counselingType === '高血脂營養方針' || state.counselingType === '痛風（高尿酸）營養方針') && (
+                    <div className="space-y-6">
+                      <h3 className="text-md font-bold text-blue-700 border-b pb-2 flex items-center justify-between">
+                        <span>追蹤指標與個人化營養計畫</span>
+                        {state.counselingType === '減重營養方針' && (
+                          <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">
+                            每次營養諮詢個人化追蹤卡
+                          </span>
+                        )}
+                      </h3>
+
+                      {state.counselingType === '減重營養方針' && (
+                        <div className="space-y-6">
+                          {/* ① 追蹤指標（飲食與身體反應） */}
+                          <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                <span className="w-2 h-4 bg-blue-600 rounded-sm inline-block"></span>
+                                📊 追蹤指標（飲食與身體反應）
+                              </h4>
+                              <span className="text-xs text-slate-500">每次追蹤 1–2 項即可，著重可持續性</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* 體重進度 */}
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
+                                <label className="text-xs font-bold text-slate-600">⚖️ 體重追蹤</label>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="text-slate-500">本次：</span>
+                                  <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">{state.anthropometry.weight || '--'} kg</span>
+                                  <span className="text-slate-400">➔</span>
+                                  <span className="text-slate-500">目標：</span>
+                                  <input 
+                                    type="text" 
+                                    placeholder="填寫目標 kg"
+                                    value={state.guidelineSelections['weight_track_target'] || state.guidelineSelections['weight_goal_target_kg'] || ''}
+                                    onChange={e => {
+                                      setSelection('weight_track_target', e.target.value);
+                                      setSelection('weight_goal_target_kg', e.target.value);
+                                    }}
+                                    className="w-24 px-2 py-1 border rounded border-slate-300 text-sm font-bold text-blue-600 text-center"
+                                  />
+                                  <span className="text-slate-500">kg</span>
+                                </div>
+                              </div>
+
+                              {/* 每日飲食紀錄 */}
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
+                                <label className="text-xs font-bold text-slate-600">📝 每日飲食紀錄</label>
+                                <div className="flex items-center gap-4 text-sm h-8">
+                                  {['有', '部分', '無'].map(opt => (
+                                    <label key={opt} className="flex items-center gap-1.5 cursor-pointer text-slate-700">
+                                      <input 
+                                        type="radio" 
+                                        name="weight_track_diet_log"
+                                        checked={state.guidelineSelections['weight_track_diet_log'] === opt}
+                                        onChange={() => setSelection('weight_track_diet_log', opt)}
+                                        className="text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <span>[{opt}]</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 本週最需改善 */}
+                            <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
+                              <label className="text-xs font-bold text-slate-600">🎯 本週最需要改善的飲食環節</label>
+                              <input 
+                                type="text" 
+                                placeholder="例如：晚餐澱粉份量固定為半碗、戒除下午手搖飲、增加蛋白質..."
+                                value={state.guidelineSelections['weight_track_diet_improve'] || ''}
+                                onChange={e => setSelection('weight_track_diet_improve', e.target.value)}
+                                className="w-full px-3 py-1.5 border rounded-lg border-slate-300 text-sm"
+                              />
+                            </div>
+
+                            {/* 飽足感與飲食行為 */}
+                            <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-3">
+                              <label className="text-xs font-bold text-slate-600">🧠 飽足感與飲食行為自我檢核</label>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                                <div className="space-y-1">
+                                  <span className="text-slate-500 block">飯後是否容易太飽：</span>
+                                  <div className="flex gap-3">
+                                    {['是', '否'].map(val => (
+                                      <label key={val} className="flex items-center gap-1 cursor-pointer">
+                                        <input 
+                                          type="radio" 
+                                          name="weight_track_fullness"
+                                          checked={state.guidelineSelections['weight_track_fullness'] === val}
+                                          onChange={() => setSelection('weight_track_fullness', val)}
+                                          className="text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span>[{val}]</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <span className="text-slate-500 block">容易嘴饞／額外吃點心：</span>
+                                  <div className="flex gap-3">
+                                    {['是', '否'].map(val => (
+                                      <label key={val} className="flex items-center gap-1 cursor-pointer">
+                                        <input 
+                                          type="radio" 
+                                          name="weight_track_cravings"
+                                          checked={state.guidelineSelections['weight_track_cravings'] === val}
+                                          onChange={() => setSelection('weight_track_cravings', val)}
+                                          className="text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span>[{val}]</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <span className="text-slate-500 block">含糖飲料頻率：</span>
+                                  <div className="flex items-center gap-1">
+                                    <input 
+                                      type="number" 
+                                      min="0"
+                                      placeholder="0"
+                                      value={state.guidelineSelections['weight_track_sugar_drinks_freq'] || ''}
+                                      onChange={e => setSelection('weight_track_sugar_drinks_freq', e.target.value)}
+                                      className="w-16 px-2 py-0.5 border rounded border-slate-300 text-center font-bold text-sm"
+                                    />
+                                    <span>次／週</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 飯後血糖反應監測（選填） */}
+                            <div className="p-3 bg-slate-100/70 rounded-lg border border-slate-200/90 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={!!state.guidelineSelections['weight_track_ppg_enabled']}
+                                    onChange={e => setSelection('weight_track_ppg_enabled', e.target.checked)}
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span>若個案有血糖監測（可選）</span>
+                                </label>
+                                <span className="text-[11px] text-slate-500">觀察餐食與血糖波動連動關係</span>
+                              </div>
+                              {state.guidelineSelections['weight_track_ppg_enabled'] && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs border-t border-slate-200">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-slate-600">飯後 2 小時：</span>
+                                    <input 
+                                      type="text" 
+                                      placeholder="例如 135" 
+                                      value={state.guidelineSelections['weight_track_ppg_val'] || ''}
+                                      onChange={e => setSelection('weight_track_ppg_val', e.target.value)}
+                                      className="w-20 px-2 py-1 border rounded border-slate-300 text-center font-bold"
+                                    />
+                                    <span>mg/dL</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-slate-600">是否明顯升高：</span>
+                                    {['是', '否'].map(val => (
+                                      <label key={val} className="flex items-center gap-1 cursor-pointer">
+                                        <input 
+                                          type="radio" 
+                                          name="weight_track_ppg_high"
+                                          checked={state.guidelineSelections['weight_track_ppg_high'] === val}
+                                          onChange={() => setSelection('weight_track_ppg_high', val)}
+                                          className="text-blue-600 focus:ring-blue-500"
+                                        />
+                                        <span>[{val}]</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  <div className="sm:col-span-2 text-[11px] text-blue-700 bg-blue-50 p-2 rounded">
+                                    💡 <strong>觀察重點：</strong>挑選 1–2 餐記錄「吃了什麼 → 吃多少 → 飯後血糖／身體反應」
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* ② 本次營養計畫（這週只做 1–2 個改變） */}
+                          <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200/80 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-bold text-emerald-900 flex items-center gap-2">
+                                <span className="w-2 h-4 bg-emerald-600 rounded-sm inline-block"></span>
+                                📌 本次營養計畫（這週只做 1–2 個改變）
+                              </h4>
+                              <span className="text-xs text-emerald-700 font-medium">從小處著手，建立成功回饋</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <GuidelineCheckbox label="每餐至少半碗蔬菜" id="weight_plan_veg" state={state} setState={setState} />
+                              <GuidelineCheckbox label="每餐固定主食份量" id="weight_plan_fixed_carbs" state={state} setState={setState} />
+                              <GuidelineCheckbox label="每餐增加一份蛋白質" id="weight_plan_add_protein" state={state} setState={setState} />
+                              <GuidelineCheckbox label="含糖飲料改為無糖" id="weight_plan_sugar_free" state={state} setState={setState} />
+                              <GuidelineCheckbox label="飯後走路 10–15 分鐘" id="weight_plan_walk" state={state} setState={setState} />
+                              <GuidelineCheckbox label="記錄 1–2 餐飲食" id="weight_plan_log_meals" state={state} setState={setState} />
+                            </div>
+
+                            <div className="pt-2">
+                              <label className="text-xs font-bold text-slate-600 block mb-1">其他自訂計畫：</label>
+                              <input 
+                                type="text" 
+                                placeholder="例如：晚上 9 點後不吃宵夜、點心由餅乾換成無調味堅果..."
+                                value={state.guidelineSelections['weight_plan_other'] || ''}
+                                onChange={e => setSelection('weight_plan_other', e.target.value)}
+                                className="w-full px-3 py-1.5 border rounded-lg border-slate-300 text-sm bg-white"
+                              />
+                            </div>
+
+                            {/* 下次追蹤安排 */}
+                            <div className="bg-white p-3.5 rounded-lg border border-emerald-200 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className="text-xs font-bold text-emerald-900">📅 下次追蹤日期與討論安排</label>
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="date"
+                                    value={state.guidelineSelections['weight_plan_next_date'] || state.monitoring.nextDate || ''}
+                                    onChange={e => {
+                                      setSelection('weight_plan_next_date', e.target.value);
+                                      setState(prev => ({ ...prev, monitoring: { ...prev.monitoring, nextDate: e.target.value } }));
+                                    }}
+                                    className="px-2 py-1 border rounded border-slate-300 text-xs font-medium"
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                <div className="space-y-1">
+                                  <span className="text-slate-600 font-medium">下次主要討論 ①：</span>
+                                  <input 
+                                    type="text" 
+                                    placeholder="例如：本週蔬菜執行狀況、外食主食份量..."
+                                    value={state.guidelineSelections['weight_plan_discuss_1'] || ''}
+                                    onChange={e => setSelection('weight_plan_discuss_1', e.target.value)}
+                                    className="w-full px-2.5 py-1.5 border rounded border-slate-300 text-xs"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="text-slate-600 font-medium">下次主要討論 ②：</span>
+                                  <input 
+                                    type="text" 
+                                    placeholder="例如：無糖飲品替代策略、飢餓感與作息..."
+                                    value={state.guidelineSelections['weight_plan_discuss_2'] || ''}
+                                    onChange={e => setSelection('weight_plan_discuss_2', e.target.value)}
+                                    className="w-full px-2.5 py-1.5 border rounded border-slate-300 text-xs"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 追蹤卡快捷列 */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  type="button"
+                                  onClick={handleCopyWeightCard}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                  複製個人化追蹤卡 (LINE / Notion)
+                                </button>
+                                {copySuccessMsg && (
+                                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded">
+                                    {copySuccessMsg}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs text-slate-400">支援一鍵貼入通訊軟體或醫療病歷</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {state.counselingType === '糖尿病營養方針' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <GuidelineCheckbox label="飯後血糖變化" id="dm_track_ppg" state={state} setState={setState} />
+                          <GuidelineCheckbox label="血糖波動（是否過高）" id="dm_track_fluctuation" state={state} setState={setState} />
+                          <GuidelineCheckbox label="飲食後反應（記錄1–2項）" id="dm_track_reaction" state={state} setState={setState} />
+                        </div>
+                      )}
+                      {state.counselingType === '高血脂營養方針' && (
+                        <div className="flex flex-wrap gap-4 items-center text-sm">
+                          <span className="font-medium">3個月追蹤：</span>
+                          <GuidelineCheckbox label="體重" id="hld_track_weight" state={state} setState={setState} />
+                          <GuidelineCheckbox label="腰圍" id="hld_track_waist" state={state} setState={setState} />
+                          <GuidelineCheckbox label="血脂數值" id="hld_track_lipid_panel" state={state} setState={setState} />
+                        </div>
+                      )}
+                      {state.counselingType === '痛風（高尿酸）營養方針' && (
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap gap-4 items-center text-sm">
+                            <span className="font-medium">3個月追蹤：</span>
+                            <GuidelineCheckbox label="尿酸" id="gout_track_ua" state={state} setState={setState} />
+                            <GuidelineCheckbox label="體重" id="gout_track_weight" state={state} setState={setState} />
+                            <GuidelineCheckbox label="飲食紀錄" id="gout_track_diet_log" state={state} setState={setState} />
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-slate-500">飲食目標</label>
+                              <input type="text" value={state.guidelineSelections['gout_plan_diet_goal'] || ''} onChange={e => setSelection('gout_plan_diet_goal', e.target.value)} className="w-full px-3 py-2 rounded border border-slate-200 text-sm" />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-slate-500">行為改變目標</label>
+                              <input type="text" value={state.guidelineSelections['gout_plan_behavior_goal'] || ''} onChange={e => setSelection('gout_plan_behavior_goal', e.target.value)} className="w-full px-3 py-2 rounded border border-slate-200 text-sm" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* (5) 備註與注意事項 */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <h3 className="text-md font-bold text-blue-700">備註與注意事項</h3>
+                      {state.counselingType === '減重營養方針' && (
+                        <button 
+                          type="button" 
+                          onClick={applyDefaultWeightNotes}
+                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          帶入減重注意事項建議
+                        </button>
+                      )}
+                    </div>
+                    <textarea 
+                      rows={4}
+                      value={state.reminderNotes || ''}
+                      onChange={e => setState({...state, reminderNotes: e.target.value})}
+                      placeholder="輸入備註或注意事項..."
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm leading-relaxed"
+                    ></textarea>
+                  </div>
+
+                  {/* (6) 衛教資訊 */}
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b pb-2">
+                      <h3 className="text-md font-bold text-blue-700">衛教資訊與附件</h3>
+                      <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1">
+                        <Plus className="w-3 h-3" />
+                        新增圖片
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          className="hidden" 
+                          onChange={handleImageUpload}
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {state.intervention.educationTopics.map(topic => (
+                        <span key={topic} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                          {topic}
+                        </span>
+                      ))}
+                      {state.intervention.educationTopics.length === 0 && !state.intervention.educationNotes && (
+                        <span className="text-slate-400 italic text-sm">尚未選擇衛教主題或填寫個別化衛教備註</span>
+                      )}
+                    </div>
+
+                    {state.intervention.educationNotes && (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 whitespace-pre-line">
+                        <div className="text-xs font-bold text-slate-500 mb-1">個別化衛教備註:</div>
+                        {state.intervention.educationNotes}
+                      </div>
+                    )}
+
+                    {state.educationImages.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
+                        {state.educationImages.map((img, idx) => (
+                          <div key={idx} className="relative group aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+                            <img src={img} alt="衛教附件" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <button 
+                              onClick={() => {
+                                const newImages = [...state.educationImages];
+                                newImages.splice(idx, 1);
+                                setState({...state, educationImages: newImages});
+                              }}
+                              className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Guideline Specifics */}
+                  {renderGuidelineSpecifics()}
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'medications' && (
+            <motion.div
+              key="medications"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      <Pill className="w-5 h-5 text-indigo-600" />
+                      藥物查詢與衛教 (Medications)
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('assessment');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      ← 返回營養評估
+                    </button>
+                  </div>
+                  <div className="relative max-w-xs w-full">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-4 w-4 text-slate-400" />
+                    </div>
+                    <input
+                      type="text"
+                      className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500 bg-white shadow-sm"
+                      placeholder="搜尋藥品名稱或適應症..."
+                      value={medicationSearchQuery}
+                      onChange={(e) => setMedicationSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="p-6 bg-slate-50/50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {MEDICATIONS.filter(med => 
+                      med.name.toLowerCase().includes(medicationSearchQuery.toLowerCase()) || 
+                      (med.genericName && med.genericName.toLowerCase().includes(medicationSearchQuery.toLowerCase())) ||
+                      med.indication.toLowerCase().includes(medicationSearchQuery.toLowerCase())
+                    ).map((med, idx) => (
+                      <div key={idx} className="bg-white border text-sm border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                        <div className="p-4 bg-indigo-50/50 border-b border-slate-100">
+                          <h3 className="font-bold text-indigo-900 text-base">{med.name}</h3>
+                          {med.genericName && <p className="text-xs text-indigo-600/70 mt-1">{med.genericName}</p>}
+                        </div>
+                        <div className="p-4 space-y-4 flex-1">
+                          <div>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">適應症</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">{med.indication}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">用法與劑量</span>
+                            <p className="text-slate-700">{med.dosage}</p>
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">注意事項</span>
+                            <ul className="list-disc list-outside ml-4 text-amber-700 space-y-1">
+                              {med.precautions.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          </div>
+                          <div className="pt-2 border-t border-slate-100">
+                            <span className="text-xs font-bold text-rose-500 uppercase tracking-wider block mb-1">營養交互作用</span>
+                            <ul className="list-disc list-outside ml-4 text-rose-700 space-y-1">
+                              {med.nutritionInteraction.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {MEDICATIONS.filter(med => 
+                    med.name.toLowerCase().includes(medicationSearchQuery.toLowerCase()) || 
+                    (med.genericName && med.genericName.toLowerCase().includes(medicationSearchQuery.toLowerCase())) ||
+                    med.indication.toLowerCase().includes(medicationSearchQuery.toLowerCase())
+                  ).length === 0 && (
+                    <div className="text-center py-12 text-slate-500 bg-white rounded-xl border border-slate-200">
+                      <Pill className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p>找不到符合「{medicationSearchQuery}」的藥物</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === 'tentative' && (
+            <motion.div
+              key="tentative"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {!isTentativeUnlocked ? (
+                /* Password Protection Screen */
+                <div className="max-w-md mx-auto my-12 bg-white rounded-3xl border border-slate-200 shadow-xl p-8 text-center space-y-6">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-extrabold text-slate-800">此頁面已受安全保護</h2>
+                    <p className="text-sm text-slate-500">此為「臨床計算」工具頁面，請輸入密碼以查看內容</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <input
+                        type="password"
+                        placeholder="請輸入 6 位數密碼"
+                        value={tentativePassword}
+                        onChange={(e) => {
+                          setTentativePassword(e.target.value);
+                          setTentativeError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            if (tentativePassword === '082085') {
+                              setIsTentativeUnlocked(true);
+                              setTentativeError('');
+                            } else {
+                              setTentativeError('密碼錯誤，請重新輸入');
+                            }
+                          }
+                        }}
+                        className="block w-full px-4 py-3.5 border border-slate-200 rounded-2xl text-center font-mono text-lg tracking-[0.5em] focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 shadow-inner"
+                        maxLength={10}
+                      />
+                    </div>
+                    {tentativeError && (
+                      <p className="text-sm font-bold text-red-500">{tentativeError}</p>
+                    )}
+                    
+                    <button
+                      onClick={() => {
+                        if (tentativePassword === '082085') {
+                          setIsTentativeUnlocked(true);
+                          setTentativeError('');
+                        } else {
+                          setTentativeError('密碼錯誤，請重新輸入');
+                        }
+                      }}
+                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer"
+                    >
+                      驗證並解鎖
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Unlocked Calculators Screen */
+                (() => {
+                  const selectedGroupData = CALCIUM_DRI_GROUPS[calcGroup];
+                  const driValue = selectedGroupData.dri;
+
+                  return (
+                    <section className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                      {/* Header / Nav */}
+                      <div className="px-6 py-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center shadow-sm">
+                            <Unlock className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-lg font-black text-slate-800">臨床計算</h2>
+                            <p className="text-xs text-slate-500">提供骨質疏鬆、心血管風險、肝細胞受損判讀與鈣質補充之專業臨床評估計算工具</p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setIsTentativeUnlocked(false);
+                            setTentativePassword('');
+                          }}
+                          title="重新鎖定頁面"
+                          className="p-2.5 bg-slate-100 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold"
+                        >
+                          <Lock className="w-4 h-4" />
+                          重新鎖定
+                        </button>
+                      </div>
+
+                      {/* Calculator Links Cards (Bento style) */}
+                      <div className="p-6 md:p-8 space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          
+                          {/* Card 1: FRAX */}
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between space-y-4">
+                            <div className="space-y-3">
+                              <span className="inline-block px-3 py-1 bg-blue-50 text-blue-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                                骨質疏鬆評估
+                              </span>
+                              <h3 className="font-extrabold text-slate-800 text-lg">FRAX® Plus 骨質疏鬆骨折風險評估工具</h3>
+                              <p className="text-sm text-slate-500 leading-relaxed">
+                                評估未來10年骨質疏鬆性骨折及髖部骨折風險，整合臨床危險因子（CRFs）與骨密度（BMD）
+                              </p>
+                            </div>
+                            <a
+                              href="https://www.fraxplus.org/calculation-tool"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-2 w-full py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-sm group"
+                            >
+                              在新分頁開啟 FRAX+ 計算機
+                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            </a>
+                          </div>
+
+                          {/* Card 2: AHA PREVENT */}
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between space-y-4">
+                            <div className="space-y-3">
+                              <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                                心血管風險評估
+                              </span>
+                              <h3 className="font-extrabold text-slate-800 text-lg">AHA PREVENT™ Cardiovascular Disease Risk Calculator</h3>
+                              <p className="text-sm text-slate-500 leading-relaxed">
+                                由AHA開發，評估10年及30年CVD風險
+                              </p>
+                            </div>
+                            <a
+                              href="https://professional.heart.org/en/guidelines-and-statements/prevent-calculator"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-2 w-full py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-sm group"
+                            >
+                              在新分頁開啟 PREVENT 計算機
+                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            </a>
+                          </div>
+
+                          {/* Card 3: Health2Sync Wellness */}
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between space-y-4">
+                            <div className="space-y-3">
+                              <span className="inline-block px-3 py-1 bg-teal-50 text-teal-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                                糖尿病照護管理
+                              </span>
+                              <h3 className="font-extrabold text-slate-800 text-lg">智抗醣後台</h3>
+                              <p className="text-sm text-slate-500 leading-relaxed">
+                                整合個案血糖數據、飲食記錄與臨床照護資訊
+                              </p>
+                            </div>
+                            <a
+                              href="https://www.health2sync.com/wellness/index"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-2 w-full py-3 bg-teal-600 text-white text-sm font-bold rounded-xl hover:bg-teal-700 transition-all shadow-sm group"
+                            >
+                              在新分頁開啟 智抗醣後台
+                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            </a>
+                          </div>
+
+                          {/* Card 4: Rightest Care CGM */}
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-slate-50/50 hover:bg-white hover:shadow-md transition-all flex flex-col justify-between space-y-4">
+                            <div className="space-y-3">
+                              <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                                連續血糖監測 (CGM)
+                              </span>
+                              <h3 className="font-extrabold text-slate-800 text-lg">華廣生技 CGM (Rightest Care)</h3>
+                              <p className="text-sm text-slate-500 leading-relaxed">
+                                提供即時血糖趨勢、AGP 分析圖表與目標範圍內時間 (TIR) 
+                              </p>
+                            </div>
+                            <a
+                              href="https://care.rightest.com/CHIMEIPM"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-2 w-full py-3 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-sm group"
+                            >
+                              在新分頁開啟 華廣CGM後台
+                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                            </a>
+                          </div>
+
+                        </div>
+
+                        {/* Liver Injury Indicators AST / ALT Clinical Reference Block (CMUH) */}
+                        <div className="pt-8 border-t border-slate-200 space-y-6">
+                          <div 
+                            onClick={() => setIsLiverGuideExpanded(!isLiverGuideExpanded)}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/50 p-2 -m-2 rounded-2xl transition-all"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                <Activity className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-lg font-black text-slate-800">肝臟損傷指標 GOT (AST) 與 GPT (ALT) 判讀重點</h3>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isLiverGuideExpanded ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800 animate-pulse'}`}>
+                                    {isLiverGuideExpanded ? '點擊收合' : '點擊展開'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500 font-medium">
+                                  參考中國醫藥大學附設醫院衛教指南：肝細胞受損指標判讀、AST/ALT ratio 比值分析與營養師臨床防護建議
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 self-start sm:self-center">
+                              <a
+                                href="https://www.cmuh.cmu.edu.tw/NewsInfo/NewsArticle?no=4269"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-200 hover:border-emerald-300 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/50 text-xs font-bold rounded-xl transition-all shadow-sm shrink-0"
+                              >
+                                開啟中醫大衛教文章
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </a>
+                              <button className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl transition-all">
+                                {isLiverGuideExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {isLiverGuideExpanded && (
+                            <div className="p-5 bg-white rounded-2xl border border-emerald-200 text-xs leading-relaxed shadow-sm space-y-4">
+                              <div className="flex items-center justify-between border-b border-emerald-100 pb-2.5">
+                                <div className="font-bold text-emerald-800 text-sm flex items-center gap-1.5">
+                                  <Activity className="w-4.5 h-4.5 text-emerald-600" />
+                                  <span>肝細胞受損指標觀念（非肝功能本身）</span>
+                                </div>
+                                <span className="text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                  中國醫藥大學附設醫院衛教彙整
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* GOT vs GPT Specificity */}
+                                <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 space-y-2">
+                                  <div className="font-bold text-emerald-900 text-xs">① GOT (AST) 與 GPT (ALT) 專一性比較</div>
+                                  <div className="space-y-1.5 text-slate-700">
+                                    <div>• <span className="font-bold text-emerald-800">ALT (GPT)：</span>丙胺酸轉胺酶，主要存在於肝細胞，較專一反映肝細胞受損。</div>
+                                    <div>• <span className="font-bold text-emerald-800">AST (GOT)：</span>天門冬胺酸轉胺酶，存在於肝臟、心肌、骨骼肌、腎臟，心肌梗塞、劇烈運動、肌肉受傷亦會升高。</div>
+                                  </div>
+                                </div>
+
+                                {/* AST/ALT Ratio Table */}
+                                <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 space-y-2">
+                                  <div className="font-bold text-emerald-900 text-xs">② AST / ALT 比值 (Ratio) 臨床意義推測</div>
+                                  <div className="space-y-1.5 text-slate-700">
+                                    <div>• <span className="font-bold text-emerald-800">小於 1 (ALT &gt; AST)：</span>脂肪肝、病毒性肝炎較常見</div>
+                                    <div>• <span className="font-bold text-emerald-800">大於 2 (AST 明顯高於 ALT)：</span>酒精性肝病高度懷疑 (常見約 2:1)</div>
+                                    <div>• <span className="font-bold text-red-700">AST、ALT 均極高 (數百至上千)：</span>急性肝炎、藥物性肝損傷、缺血性肝炎</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                                {/* Dietitian Clinical Judgement */}
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                                  <div className="font-bold text-slate-800 text-xs">③ 營養師臨床實用判讀 (ALT 數值分級)</div>
+                                  <ul className="list-disc list-inside space-y-1 text-slate-700">
+                                    <li><span className="font-bold">ALT 輕度上升 (40–100 U/L)：</span>常見於脂肪肝、肥胖、胰島素阻抗。</li>
+                                    <li><span className="font-bold">ALT 中度上升 (100–300 U/L)：</span>需評估肝炎、藥物、酒精、代謝疾病。</li>
+                                    <li><span className="font-bold text-red-600">ALT/AST &gt; 500–1000 U/L：</span>屬急性肝損傷，應立即由醫師進一步檢查。</li>
+                                  </ul>
+                                </div>
+
+                                {/* Nutrition Interventions */}
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                                  <div className="font-bold text-slate-800 text-xs">④ 營養介入與防護 6 大重點</div>
+                                  <ul className="list-disc list-inside space-y-1 text-slate-700">
+                                    <li>減少/避免酒精攝取</li>
+                                    <li>控制體重（減重 5–10% 可顯著改善脂肪肝）</li>
+                                    <li>降低精製糖與含糖飲料</li>
+                                    <li>採用地中海型飲食</li>
+                                    <li>足量蛋白質（1.0–1.2 g/kg，無肝性腦病變時）</li>
+                                    <li>避免來路不明保健品與草藥</li>
+                                  </ul>
+                                </div>
+                              </div>
+
+                              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                                <div className="font-bold text-amber-950">⚠️ 衛教重要提醒（為什麼 GOT/GPT 正常也不能完全放心？）</div>
+                                <div> GOT/GPT 是「肝細胞受損指標」，不是肝功能本身。晚期肝硬化患者因肝細胞大量壞死萎縮，酵素釋放反而可能不高。臨床評估肝臟機能必須結合膽紅素 (Bilirubin)、白蛋白 (Albumin)、凝血機能 (PT/INR)、腹部超音波及病毒性肝炎檢查。</div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="pt-8 border-t border-slate-200 space-y-6">
+                          <div
+                            onClick={() => setIsCalciumExpanded(!isCalciumExpanded)}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/50 p-2 -m-2 rounded-2xl transition-all"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                <Pill className="w-5 h-5" />
+                              </div>
+                              <div>
+                                {/* Calcium Supplement Clinical Guide (Full Width) */}
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-lg font-black text-slate-800">補鈣與鈣片精準臨床指引</h3>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isCalciumExpanded ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
+                                    {isCalciumExpanded ? '點擊收合' : '點擊展開'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500 font-medium">
+                                  依據台灣膳食營養素參考攝取量（DRIs）設計，提供多種臨床鈣片、吸收率與服用指引
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 self-start sm:self-center">
+                              <a
+                                href="http://www.cacalculator.com.tw/cainfo/9.html"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 text-xs font-bold rounded-xl transition-all shadow-sm shrink-0"
+                              >
+                                開啟官方補鈣指南
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </a>
+                              <button className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl transition-all">
+                                {isCalciumExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {isCalciumExpanded && (
+                            <div className="space-y-6 pt-2">
+                              {/* Group Selection (DRI Recommendation) */}
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                              <div className="space-y-2 max-w-md w-full">
+                                <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                                  選擇個案群組（查詢每日建議攝取量 DRI）
+                                </label>
+                                <select
+                                  value={calcGroup}
+                                  onChange={(e) => setCalcGroup(e.target.value as any)}
+                                  className="w-full text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 font-bold text-slate-700"
+                                >
+                                  {Object.entries(CALCIUM_DRI_GROUPS).map(([key, group]) => (
+                                    <option key={key} value={key}>{group.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="bg-white border border-slate-200/60 rounded-xl p-4 flex items-center gap-4 shadow-sm md:min-w-[280px]">
+                                <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-lg shadow-sm">
+                                  DRI
+                                </div>
+                                <div>
+                                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">每日建議攝取量 (DRI)</div>
+                                  <div className="text-lg font-black text-blue-600">
+                                    {driValue} <span className="text-xs font-bold text-slate-500">mg / 天</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-medium">台灣成人及特定群組官方參考標準</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Calcium Types Table */}
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-black text-slate-700 flex items-center gap-2">
+                                  <span className="w-1.5 h-4 bg-amber-500 rounded-full" />
+                                  臨床常用鈣片種類、吸收率及服用指引對照表
+                                </h4>
+                              </div>
+
+                              {/* Desktop / Tablet Table View */}
+                              <div className="hidden md:block overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-sm">
+                                <table className="w-full text-left border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200">
+                                      <th className="px-5 py-4 text-xs font-black text-slate-500 uppercase tracking-wider w-1/4">鈣片種類 (主要化合物)</th>
+                                      <th className="px-5 py-4 text-xs font-black text-slate-500 uppercase tracking-wider text-center w-[12%]">鈣含量比率</th>
+                                      <th className="px-5 py-4 text-xs font-black text-slate-500 uppercase tracking-wider text-center w-[12%]">人體吸收率</th>
+                                      <th className="px-5 py-4 text-xs font-black text-slate-500 uppercase tracking-wider w-[36%]">臨床服用指引與特性</th>
+                                      <th className="px-5 py-4 text-xs font-black text-slate-500 uppercase tracking-wider w-[16%]">常見副作用</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {Object.entries(CALCIUM_TYPES).map(([key, type]) => (
+                                      <tr key={key} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-5 py-4">
+                                          <div className="font-extrabold text-slate-800 text-sm">{type.name.split(' (')[0]}</div>
+                                          <div className="text-[10px] text-slate-400 font-medium mt-0.5">{type.name.split(' (')[1]?.replace(')', '') || ''}</div>
+                                        </td>
+                                        <td className="px-5 py-4 text-center">
+                                          <span className="inline-block px-2.5 py-1 bg-amber-50 text-amber-700 font-black text-xs rounded-lg border border-amber-100">
+                                            {(type.percentage * 100).toFixed(0)}%
+                                          </span>
+                                        </td>
+                                        <td className="px-5 py-4 text-center">
+                                          <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black text-xs rounded-lg border border-emerald-100">
+                                            {(type.absorption * 100).toFixed(0)}%
+                                          </span>
+                                        </td>
+                                        <td className="px-5 py-4 text-xs text-slate-600 leading-relaxed font-medium">
+                                          {type.tip}
+                                        </td>
+                                        <td className="px-5 py-4 text-xs text-slate-500 font-bold">
+                                          {type.sideEffect}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {/* Mobile List View */}
+                              <div className="md:hidden space-y-4">
+                                {Object.entries(CALCIUM_TYPES).map(([key, type]) => (
+                                  <div key={key} className="border border-slate-200 rounded-2xl p-5 bg-white space-y-3.5 shadow-sm">
+                                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                      <h5 className="font-extrabold text-slate-800 text-sm">{type.name}</h5>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3 text-center">
+                                      <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-2.5">
+                                        <div className="text-[9px] font-black text-amber-800 uppercase tracking-wider">鈣含量比率</div>
+                                        <div className="text-sm font-black text-amber-700 mt-0.5">{(type.percentage * 100).toFixed(0)}%</div>
+                                      </div>
+                                      <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-2.5">
+                                        <div className="text-[9px] font-black text-emerald-800 uppercase tracking-wider">人體吸收率</div>
+                                        <div className="text-sm font-black text-emerald-700 mt-0.5">{(type.absorption * 100).toFixed(0)}%</div>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1.5 bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs">
+                                      <div className="font-extrabold text-slate-700 flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                        臨床服用指引：
+                                      </div>
+                                      <p className="text-slate-500 leading-relaxed font-medium">
+                                        {type.tip}
+                                      </p>
+                                    </div>
+
+                                    <div className="text-[11px] text-slate-500 font-bold bg-slate-50/50 px-3 py-2 rounded-xl">
+                                        副作用：{type.sideEffect}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+                    </section>
+                  );
+                })()
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="mt-12 flex justify-between items-center text-slate-400 text-sm border-t border-slate-200 pt-8 no-print">
+              <p>© 2026 營養諮詢紀錄系統 - NCP 專業版</p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    if(confirm('確定要清空所有紀錄嗎？')) {
+                      setState(INITIAL_STATE);
+                      setOriginalPatientName(null);
+                    }
+                  }}
+                  className="hover:text-red-500 transition-colors"
+                >
+                  清空紀錄
+                </button>
+                <button 
+                  onClick={handlePrint}
+                  className="hover:text-blue-600 transition-colors"
+                >
+                  列印報告
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </main>
+
+      {/* Hidden Full Report for Printing */}
+      <div className="hidden print:block p-8 space-y-12 bg-white text-slate-900 absolute top-0 left-0 w-full z-[100]">
+        <div className="text-center border-b-2 border-slate-900 pb-4">
+          <h1 className="text-3xl font-bold">營養諮詢紀錄報告</h1>
+          <p className="text-slate-500 mt-2">諮詢日期: {state.consultDate}</p>
+        </div>
+
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold border-l-4 border-blue-600 pl-3">基本資料與諮詢紀錄</h2>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div><span className="font-bold">諮詢目標:</span> {state.goal}</div>
+            <div><span className="font-bold">諮詢紀錄:</span> {state.notes}</div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold border-l-4 border-blue-600 pl-3">一、營養評估 (Assessment)</h2>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div><span className="font-bold">姓名:</span> {state.clientHx.name}</div>
+            <div><span className="font-bold">性別:</span> {state.clientHx.gender}</div>
+            <div><span className="font-bold">年齡:</span> {state.clientHx.birthday ? calculateAge(state.clientHx.birthday) : '--'} 歲</div>
+            <div><span className="font-bold">身高:</span> {state.anthropometry.height} cm</div>
+            <div><span className="font-bold">體重:</span> {state.anthropometry.weight} kg</div>
+            <div><span className="font-bold">BMI:</span> {state.anthropometry.bmi}</div>
+            <div><span className="font-bold">IBW:</span> {state.anthropometry.ibw} kg</div>
+            <div><span className="font-bold">ABW:</span> {state.anthropometry.abw} kg</div>
+            <div><span className="font-bold">體脂率:</span> {state.anthropometry.bodyFat} %</div>
+            <div>
+              <span className="font-bold">運動習慣:</span> {(() => {
+                const list = state.clientHx.exerciseList || [];
+                if (list.length > 0) {
+                  const formatted = list
+                    .map(ex => {
+                      const parts: string[] = [];
+                      if (ex.frequency) parts.push(ex.frequency);
+                      if (ex.type) parts.push(ex.type);
+                      if (ex.name) parts.push(`(${ex.name})`);
+                      return parts.join(' ').trim();
+                    })
+                    .filter(Boolean);
+                  if (formatted.length > 0) return formatted.join('、');
+                }
+                const single = `${state.clientHx.exercise.frequency ? state.clientHx.exercise.frequency + ' ' : ''}${state.clientHx.exercise.type || ''}${state.clientHx.exercise.name ? ' (' + state.clientHx.exercise.name + ')' : ''}`.trim();
+                return single || '無';
+              })()}
+            </div>
+            <div><span className="font-bold">活動因子:</span> {state.clientHx.exercise.activityFactor || '無'}</div>
+            <div><span className="font-bold">生活習慣:</span> {(() => {
+              const parts: string[] = [];
+              if (state.clientHx.habits.smoke) {
+                parts.push(`抽菸${state.clientHx.habits.smokeFrequency ? ` (${state.clientHx.habits.smokeFrequency})` : ''}`);
+              }
+              if (state.clientHx.habits.drink) {
+                parts.push(`喝酒${state.clientHx.habits.drinkFrequency ? ` (${state.clientHx.habits.drinkFrequency})` : ''}`);
+              }
+              if (state.clientHx.habits.none || parts.length === 0) {
+                return '無';
+              }
+              return parts.join('、');
+            })()}</div>
+          </div>
+          
+          {/* Muscle & Sarcopenia Screening Summary Row */}
+          {(state.anthropometry.rightArmMuscle || state.anthropometry.gripStrength) && (
+            <div className="mt-4 pt-4 border-t border-dashed border-indigo-100 bg-indigo-50/20 p-3 rounded-lg border border-indigo-100/50">
+              <h3 className="font-bold text-sm mb-2 text-indigo-900 flex items-center gap-1.5">
+                <span>💪 肌力評估</span>
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                <div><span className="font-semibold text-slate-500">右手 / 左手肌肉量:</span> {state.anthropometry.rightArmMuscle || '--'} kg / {state.anthropometry.leftArmMuscle || '--'} kg</div>
+                <div><span className="font-semibold text-slate-500">右腳 / 左腳肌肉量:</span> {state.anthropometry.rightLegMuscle || '--'} kg / {state.anthropometry.leftLegMuscle || '--'} kg</div>
+                <div><span className="font-semibold text-slate-500">手握力 / ASMI 指數:</span> {state.anthropometry.gripStrength || '--'} kg ｜ {sarcopeniaAnalysis.asmi ? `${sarcopeniaAnalysis.asmi} kg/m²` : '--'}</div>
+                <div>
+                  <span className="font-semibold text-slate-500">校正型 (ASM/BMI):</span> {sarcopeniaAnalysis.asmOverBmi ? `${sarcopeniaAnalysis.asmOverBmi} m²` : '--'} ｜ <span className="font-bold text-indigo-950">{sarcopeniaAnalysis.result}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <h3 className="font-bold text-sm mb-2">生化數值:</h3>
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              {Object.entries(state.biochemistry).map(([key, val]) => (
+                <div key={key} className="border p-1">
+                  <span className="font-semibold">{key}:</span> {val || '--'}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold border-l-4 border-blue-600 pl-3">二、營養診斷 (Diagnosis)</h2>
+          <div className="space-y-2">
+            {state.diagnoses?.map((diag, idx) => (
+              <div key={idx} className="p-3 border rounded text-sm italic">
+                {diag.problem === '其他' ? (diag.problemOther || '其他') : diag.problem} 與 {diag.etiology === '其他' ? (diag.etiologyOther || '其他') : diag.etiology} 有關，經由 {diag.symptom === '其他' ? (diag.symptomOther || '其他') : diag.symptom} 證實。
+              </div>
+            ))}
+            {(!state.diagnoses || state.diagnoses.length === 0) && <p className="text-sm text-slate-400 italic">無紀錄</p>}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold border-l-4 border-blue-600 pl-3">三、營養介入 (Intervention)</h2>
+          <div className="text-sm space-y-2">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
+              <div className="border p-2">
+                <span className="font-bold">建議熱量:</span> {state.diet.targetKcal} kcal/d
+              </div>
+              {recommendedMacros && (
+                <>
+                  <div className="border p-2">
+                    <span className="font-bold">醣類 (g):</span> {recommendedMacros.carbs} ({parseFloat(state.intervention.macroConfig?.carbsPercent as any) || 0}%)
+                  </div>
+                  <div className="border p-2">
+                    <span className="font-bold">蛋白質 (g):</span> {recommendedMacros.protein} ({parseFloat(state.intervention.macroConfig?.proteinPercent as any) || 0}%)
+                  </div>
+                  <div className="border p-2">
+                    <span className="font-bold">脂肪 (g):</span> {recommendedMacros.fat} ({parseFloat(state.intervention.macroConfig?.fatPercent as any) || 0}%)
+                  </div>
+                </>
+              )}
+            </div>
+            <div>
+              <span className="font-bold">建議飲水量:</span> {recommendedWater} ml/d
+            </div>
+
+            {(state.intervention.educationTopics.length > 0 || state.intervention.educationNotes) && (
+              <div>
+                <h3 className="font-bold mt-2">營養教育重點:</h3>
+                {state.intervention.educationTopics.length > 0 && (
+                  <ul className="list-disc list-inside">
+                    {state.intervention.educationTopics.map(t => <li key={t}>{t}</li>)}
+                  </ul>
+                )}
+                {state.intervention.educationNotes && (
+                  <div className="mt-1 text-xs whitespace-pre-line bg-slate-50 p-2 rounded border border-slate-200">
+                    {state.intervention.educationNotes}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold border-l-4 border-blue-600 pl-3">四、營養監測 (Monitoring)</h2>
+          <div className="text-sm space-y-4">
+            {state.monitoring.history.length > 0 && (
+              <table className="w-full border-collapse border border-slate-300 text-xs">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border border-slate-300 p-1">日期</th>
+                    <th className="border border-slate-300 p-1">體重</th>
+                    <th className="border border-slate-300 p-1">HbA1c</th>
+                    <th className="border border-slate-300 p-1">eGFR</th>
+                    <th className="border border-slate-300 p-1">TG</th>
+                    <th className="border border-slate-300 p-1">LDL</th>
+                    <th className="border border-slate-300 p-1">其他</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.monitoring.history.map((record, idx) => (
+                    <tr key={idx}>
+                      <td className="border border-slate-300 p-1 text-center">{record.date}</td>
+                      <td className="border border-slate-300 p-1 text-center">{record.weight || '--'}</td>
+                      <td className="border border-slate-300 p-1 text-center">{record.hba1c || '--'}</td>
+                      <td className="border border-slate-300 p-1 text-center">{record.egfr || '--'}</td>
+                      <td className="border border-slate-300 p-1 text-center">{record.tg || '--'}</td>
+                      <td className="border border-slate-300 p-1 text-center">{record.ldl || '--'}</td>
+                      <td className="border border-slate-300 p-1">{record.other || '--'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {state.monitoring.selectedIndicators && state.monitoring.selectedIndicators.length > 0 && (
+              <p><span className="font-bold">預計追蹤監測項目:</span> {state.monitoring.selectedIndicators.join('、')}</p>
+            )}
+            <p><span className="font-bold">下次追蹤日期:</span> {state.monitoring.nextDate || '--'}</p>
+            <p><span className="font-bold">監測計畫:</span> {state.monitoring.plan || '--'}</p>
+          </div>
+        </section>
+      </div>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 border border-slate-100">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <LogOut className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-2">確定要登出嗎？</h3>
+              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                您即將登出此系統。若有未儲存的諮詢紀錄，建議先進行儲存，以免資料遺失。
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all cursor-pointer text-xs"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={executeLogout}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-all shadow-sm cursor-pointer text-xs"
+              >
+                確認登出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
