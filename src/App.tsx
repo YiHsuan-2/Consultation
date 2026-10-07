@@ -5349,7 +5349,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         目前服用藥物 (Current Medications)
                       </label>
                       <span className="text-xs text-slate-400 font-medium">
-                        ※ 可搜尋藥物資料庫快速新增，點擊藥物標籤可跳轉至衛教資訊
+                        ※ 搜尋資料庫新增
                       </span>
                     </div>
 
@@ -6262,14 +6262,9 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                           <span className="p-1 bg-blue-600 text-white rounded-lg shadow-2xs">
                             <Plus className="w-4 h-4" />
                           </span>
-                          <div>
-                            <span className="text-sm font-bold text-slate-800">
-                              自行新增食物
-                            </span>
-                            <span className="text-[11px] text-blue-600 font-medium ml-2 hidden sm:inline">
-                              (輸入食物名稱、醣類、蛋白質、脂肪與熱量，同步至矩陣與飲食內容)
-                            </span>
-                          </div>
+                          <span className="text-sm font-bold text-slate-800">
+                            自行新增
+                          </span>
                         </div>
                         <button
                           type="button"
@@ -6304,7 +6299,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             </div>
 
                             <div className="space-y-1">
-                              <label className="text-xs font-bold text-slate-700">食物類別 (對應矩陣橫列)</label>
+                              <label className="text-xs font-bold text-slate-700">食物類別</label>
                               <select
                                 value={customFoodCategory}
                                 onChange={e => setCustomFoodCategory(e.target.value)}
@@ -6434,10 +6429,6 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                            <span>※ 熱量預設依三大營養素 (4/4/9 kcal/g) 自動計算，亦可手動調整。</span>
-                            <span>新增後將即時寫入「{customFoodMeal}」份數矩陣與「飲食內容」清單</span>
-                          </div>
                         </div>
                       )}
                     </div>
