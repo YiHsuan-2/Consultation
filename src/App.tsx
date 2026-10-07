@@ -1232,23 +1232,242 @@ export default function App() {
   const [selectedMeal, setSelectedMeal] = useState('早餐');
   const [portionInput, setPortionInput] = useState<number>(1);
   const [editingCell, setEditingCell] = useState<{ category: string; meal: string } | null>(null);
-  const [editingCellItems, setEditingCellItems] = useState<{ id: string; name: string; qty: number; category: string }[]>([]);
+  const [editingCellItems, setEditingCellItems] = useState<(FoodItem & { id: string; qty: number; category: string; meal?: string })[]>([]);
   const [cellNewFoodName, setCellNewFoodName] = useState<string>('');
   const [cellNewFoodQty, setCellNewFoodQty] = useState<number>(1);
+
+  // Custom foods saved across sessions in localStorage
+  const [customFoods, setCustomFoods] = useState<FoodItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('diet_custom_foods');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const saveCustomFood = useCallback((food: FoodItem) => {
+    setCustomFoods(prev => {
+      const exists = prev.some(f => f.name.toLowerCase() === food.name.toLowerCase() && f.category === food.category);
+      const updated = exists ? prev.map(f => (f.name.toLowerCase() === food.name.toLowerCase() && f.category === food.category) ? food : f) : [...prev, food];
+      try {
+        localStorage.setItem('diet_custom_foods', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  const allAvailableFoods = useMemo(() => {
+    return [...FOOD_DATABASE, ...customFoods];
+  }, [customFoods]);
+
+  // Main custom food form states in Diet Hx
+  const [customFoodFormOpen, setCustomFoodFormOpen] = useState(true);
+  const [customFoodName, setCustomFoodName] = useState('');
+  const [customFoodCategory, setCustomFoodCategory] = useState('外食類');
+  const [customFoodMeal, setCustomFoodMeal] = useState('早餐');
+  const [customFoodQty, setCustomFoodQty] = useState<number>(1);
+  const [customFoodCarbs, setCustomFoodCarbs] = useState<string>('');
+  const [customFoodProtein, setCustomFoodProtein] = useState<string>('');
+  const [customFoodFat, setCustomFoodFat] = useState<string>('');
+  const [customFoodKcal, setCustomFoodKcal] = useState<string>('');
+  const [isCustomKcalManual, setIsCustomKcalManual] = useState(false);
+  const [customFoodSuccessMsg, setCustomFoodSuccessMsg] = useState<string>('');
+
+  // Cell modal custom food states
+  const [cellCustomFoodOpen, setCellCustomFoodOpen] = useState(false);
+  const [cellCustomFoodName, setCellCustomFoodName] = useState('');
+  const [cellCustomFoodCarbs, setCellCustomFoodCarbs] = useState('');
+  const [cellCustomFoodProtein, setCellCustomFoodProtein] = useState('');
+  const [cellCustomFoodFat, setCellCustomFoodFat] = useState('');
+  const [cellCustomFoodKcal, setCellCustomFoodKcal] = useState('');
+  const [cellCustomFoodQty, setCellCustomFoodQty] = useState<number>(1);
+
+  const handleCustomCarbsChange = (val: string) => {
+    setCustomFoodCarbs(val);
+    if (!isCustomKcalManual) {
+      const c = parseFloat(val) || 0;
+      const p = parseFloat(customFoodProtein) || 0;
+      const f = parseFloat(customFoodFat) || 0;
+      const total = c * 4 + p * 4 + f * 9;
+      setCustomFoodKcal(total > 0 ? String(Math.round(total)) : '');
+    }
+  };
+
+  const handleCustomProteinChange = (val: string) => {
+    setCustomFoodProtein(val);
+    if (!isCustomKcalManual) {
+      const c = parseFloat(customFoodCarbs) || 0;
+      const p = parseFloat(val) || 0;
+      const f = parseFloat(customFoodFat) || 0;
+      const total = c * 4 + p * 4 + f * 9;
+      setCustomFoodKcal(total > 0 ? String(Math.round(total)) : '');
+    }
+  };
+
+  const handleCustomFatChange = (val: string) => {
+    setCustomFoodFat(val);
+    if (!isCustomKcalManual) {
+      const c = parseFloat(customFoodCarbs) || 0;
+      const p = parseFloat(customFoodProtein) || 0;
+      const f = parseFloat(val) || 0;
+      const total = c * 4 + p * 4 + f * 9;
+      setCustomFoodKcal(total > 0 ? String(Math.round(total)) : '');
+    }
+  };
+
+  const handleCustomKcalChange = (val: string) => {
+    setCustomFoodKcal(val);
+    setIsCustomKcalManual(true);
+  };
+
+  const handleAutoCalcKcal = () => {
+    const c = parseFloat(customFoodCarbs) || 0;
+    const p = parseFloat(customFoodProtein) || 0;
+    const f = parseFloat(customFoodFat) || 0;
+    const total = c * 4 + p * 4 + f * 9;
+    setCustomFoodKcal(total > 0 ? String(Math.round(total)) : '0');
+    setIsCustomKcalManual(false);
+  };
+
+  const handleAddCustomFood = () => {
+    if (!customFoodName.trim()) {
+      alert('請輸入食物名稱！');
+      return;
+    }
+
+    const c = parseFloat(customFoodCarbs) || 0;
+    const p = parseFloat(customFoodProtein) || 0;
+    const f = parseFloat(customFoodFat) || 0;
+    const enteredKcal = parseFloat(customFoodKcal);
+    const kcal = !isNaN(enteredKcal) ? enteredKcal : Math.round(c * 4 + p * 4 + f * 9);
+    const qty = parseFloat(String(customFoodQty)) || portionInput || 1;
+    const meal = customFoodMeal || selectedMeal;
+    const category = customFoodCategory || '外食類';
+
+    const newLogItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: customFoodName.trim(),
+      category,
+      carbs: c,
+      protein: p,
+      fat: f,
+      kcal,
+      calories: kcal,
+      qty,
+      meal,
+      fiber: 0,
+      saturatedFat: 0,
+      transFat: 0,
+      cholesterol: 0,
+      na: 0,
+      k: 0,
+      p: 0,
+    };
+
+    setState(prev => ({
+      ...prev,
+      diet: {
+        ...prev.diet,
+        logs: [...prev.diet.logs, newLogItem]
+      }
+    }));
+
+    saveCustomFood({
+      name: customFoodName.trim(),
+      category,
+      carbs: c,
+      protein: p,
+      fat: f,
+      kcal,
+      calories: kcal,
+      fiber: 0,
+      saturatedFat: 0,
+      transFat: 0,
+      cholesterol: 0,
+      na: 0,
+      k: 0,
+      p: 0,
+    });
+
+    const addedName = customFoodName.trim();
+    setCustomFoodName('');
+    setCustomFoodCarbs('');
+    setCustomFoodProtein('');
+    setCustomFoodFat('');
+    setCustomFoodKcal('');
+    setIsCustomKcalManual(false);
+
+    setCustomFoodSuccessMsg(`✓ 已成功新增「${addedName}」至 ${meal}（${qty}份），已同步至份數矩陣與飲食內容！`);
+    setTimeout(() => {
+      setCustomFoodSuccessMsg('');
+    }, 4000);
+  };
+
+  const handleAddCellCustomFood = () => {
+    if (!cellCustomFoodName.trim()) {
+      alert('請輸入食物名稱！');
+      return;
+    }
+    const c = parseFloat(cellCustomFoodCarbs) || 0;
+    const p = parseFloat(cellCustomFoodProtein) || 0;
+    const f = parseFloat(cellCustomFoodFat) || 0;
+    const enteredKcal = parseFloat(cellCustomFoodKcal);
+    const kcal = !isNaN(enteredKcal) ? enteredKcal : Math.round(c * 4 + p * 4 + f * 9);
+    const qty = cellCustomFoodQty || 1;
+    const id = Math.random().toString(36).substr(2, 9);
+    const category = editingCell?.category || '外食類';
+    const meal = editingCell?.meal || '早餐';
+
+    const newFoodItem: FoodItem & { id: string; qty: number; category: string; meal: string } = {
+      id,
+      name: cellCustomFoodName.trim(),
+      category,
+      carbs: c,
+      protein: p,
+      fat: f,
+      kcal,
+      calories: kcal,
+      qty,
+      meal,
+      fiber: 0,
+      saturatedFat: 0,
+      transFat: 0,
+      cholesterol: 0,
+      na: 0,
+      k: 0,
+      p: 0,
+    };
+
+    saveCustomFood({
+      name: cellCustomFoodName.trim(),
+      category,
+      carbs: c,
+      protein: p,
+      fat: f,
+      kcal,
+      calories: kcal,
+    });
+
+    setEditingCellItems(prev => [...prev, newFoodItem]);
+    setCellCustomFoodName('');
+    setCellCustomFoodCarbs('');
+    setCellCustomFoodProtein('');
+    setCellCustomFoodFat('');
+    setCellCustomFoodKcal('');
+    setCellCustomFoodQty(1);
+    setCellCustomFoodOpen(false);
+  };
 
   const handleCellDoubleClick = (category: string, meal: string) => {
     const cellItems = state.diet.logs.filter(
       log => getRowCategory(log.category) === category && log.meal === meal
-    ).map(item => ({
-      id: item.id,
-      name: item.name,
-      qty: item.qty,
-      category: item.category
-    }));
+    ).map(item => ({ ...item }));
     setEditingCell({ category, meal });
     setEditingCellItems(cellItems);
     setCellNewFoodName('');
     setCellNewFoodQty(1);
+    setCellCustomFoodOpen(false);
   };
 
   const handleSaveCellPortions = () => {
@@ -1266,17 +1485,20 @@ export default function App() {
         if (originalLog) {
           return { ...originalLog, qty: item.qty };
         }
-        return null;
+        return item;
       })
       .filter((log): log is NonNullable<typeof log> => log !== null);
 
     let addedLog = null;
     if (cellNewFoodName) {
-      const food = FOOD_DATABASE.find(f => f.name === cellNewFoodName);
+      const food = allAvailableFoods.find(f => f.name === cellNewFoodName);
       if (food) {
         const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+        const kcalVal = (food.kcal !== undefined && food.kcal !== null) ? food.kcal : (food.carbs * 4 + food.protein * 4 + food.fat * 9);
         addedLog = {
           ...food,
+          kcal: kcalVal,
+          calories: kcalVal,
           category: targetCategory,
           id: Math.random().toString(36).substr(2, 9),
           qty: cellNewFoodQty,
@@ -2587,11 +2809,12 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
         newCategories[item.category] = (newCategories[item.category] || 0) + qty;
       }
 
+      const itemKcal = (item.kcal !== undefined && item.kcal !== null) ? item.kcal : (item.carbs * 4 + item.protein * 4 + item.fat * 9);
       return {
         carbs: acc.carbs + (item.carbs * qty),
         protein: acc.protein + (item.protein * qty),
         fat: acc.fat + (item.fat * qty),
-        kcal: acc.kcal + ((item.carbs * 4 + item.protein * 4 + item.fat * 9) * qty),
+        kcal: acc.kcal + (itemKcal * qty),
         fiber: acc.fiber + (fiber * qty),
         saturatedFat: acc.saturatedFat + (saturatedFat * qty),
         transFat: acc.transFat + (transFat * qty),
@@ -2606,11 +2829,11 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
 
   const filteredFood = useMemo(() => {
     if (!searchQuery.trim()) return [];
-    return FOOD_DATABASE.filter(f => 
+    return allAvailableFoods.filter(f => 
       f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       f.category.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [searchQuery]);
+  }, [searchQuery, allAvailableFoods]);
 
 
 
@@ -3118,19 +3341,30 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                 )}
 
                 {/* Additional quick append section in modal */}
-                <div className="border-t border-slate-100 pt-4 mt-2">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2.5">在此類別快速追加新食物：</span>
-                  <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100 space-y-3">
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                      <select 
-                        value={cellNewFoodName}
-                        onChange={e => setCellNewFoodName(e.target.value)}
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none focus:ring-1 focus:ring-blue-500"
-                      >
-                        <option value="">選擇要追加的食物...</option>
-                        {FOOD_DATABASE.filter(f => getRowCategory(f.category) === editingCell.category).map(f => (
-                          <option key={f.name} value={f.name}>{f.name}</option>
-                        ))}
+                <div className="border-t border-slate-100 pt-4 mt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">在此類別快速追加食物：</span>
+                    <button
+                      type="button"
+                      onClick={() => setCellCustomFoodOpen(!cellCustomFoodOpen)}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100 transition-all cursor-pointer"
+                    >
+                      {cellCustomFoodOpen ? '切換回現有食物選單' : '＋ 自行輸入新食物'}
+                    </button>
+                  </div>
+
+                  {!cellCustomFoodOpen ? (
+                    <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100 space-y-3">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <select 
+                          value={cellNewFoodName}
+                          onChange={e => setCellNewFoodName(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="">選擇要追加的食物...</option>
+                          {allAvailableFoods.filter(f => getRowCategory(f.category) === editingCell.category).map(f => (
+                            <option key={f.name} value={f.name}>{f.name}</option>
+                          ))}
                       </select>
 
                       {/* Quantity selector for new appended item */}
@@ -3160,6 +3394,116 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       </div>
                     </div>
                   </div>
+                  ) : (
+                    <div className="bg-blue-50/40 p-3.5 rounded-2xl border border-blue-100 space-y-2.5">
+                      <div className="text-[11px] font-bold text-blue-800 flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5" /> 自行輸入食物與四大營養素：
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="食物名稱 (必填)"
+                          value={cellCustomFoodName}
+                          onChange={e => setCellCustomFoodName(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-500 shrink-0">份數:</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0.1"
+                            value={cellCustomFoodQty}
+                            onChange={e => setCellCustomFoodQty(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                            className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-200 bg-white"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium block">醣 (g)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            placeholder="0"
+                            value={cellCustomFoodCarbs}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCellCustomFoodCarbs(val);
+                              const c = parseFloat(val) || 0;
+                              const p = parseFloat(cellCustomFoodProtein) || 0;
+                              const f = parseFloat(cellCustomFoodFat) || 0;
+                              const tot = c * 4 + p * 4 + f * 9;
+                              setCellCustomFoodKcal(tot > 0 ? String(Math.round(tot)) : '');
+                            }}
+                            className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium block">蛋 (g)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            placeholder="0"
+                            value={cellCustomFoodProtein}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCellCustomFoodProtein(val);
+                              const c = parseFloat(cellCustomFoodCarbs) || 0;
+                              const p = parseFloat(val) || 0;
+                              const f = parseFloat(cellCustomFoodFat) || 0;
+                              const tot = c * 4 + p * 4 + f * 9;
+                              setCellCustomFoodKcal(tot > 0 ? String(Math.round(tot)) : '');
+                            }}
+                            className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium block">脂 (g)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            placeholder="0"
+                            value={cellCustomFoodFat}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCellCustomFoodFat(val);
+                              const c = parseFloat(cellCustomFoodCarbs) || 0;
+                              const p = parseFloat(cellCustomFoodProtein) || 0;
+                              const f = parseFloat(val) || 0;
+                              const tot = c * 4 + p * 4 + f * 9;
+                              setCellCustomFoodKcal(tot > 0 ? String(Math.round(tot)) : '');
+                            }}
+                            className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium block">熱量 (kcal)</label>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder="0"
+                            value={cellCustomFoodKcal}
+                            onChange={e => setCellCustomFoodKcal(e.target.value)}
+                            className="w-full px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={handleAddCellCustomFood}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> 加入此儲存格
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -5830,11 +6174,12 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                                     type="button"
                                     onClick={() => {
                                       const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+                                      const kcalVal = (food.kcal !== undefined && food.kcal !== null) ? food.kcal : (food.carbs * 4 + food.protein * 4 + food.fat * 9);
                                       setState({
                                         ...state,
                                         diet: {
                                           ...state.diet,
-                                          logs: [...state.diet.logs, { ...food, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
+                                          logs: [...state.diet.logs, { ...food, kcal: kcalVal, calories: kcalVal, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
                                         }
                                       });
                                       setSearchQuery('');
@@ -5870,7 +6215,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         className="w-full sm:w-48 px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:ring-1 focus:ring-blue-500"
                       >
                         <option value="">選擇食物類別...</option>
-                        {Array.from(new Set(FOOD_DATABASE.map(f => f.category))).map(cat => (
+                        {Array.from(new Set(allAvailableFoods.map(f => f.category))).map(cat => (
                           <option key={cat} value={cat}>{cat}</option>
                         ))}
                       </select>
@@ -5881,14 +6226,15 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                           const foodName = e.target.value;
                           setSelectedFoodItem(foodName);
                             if (foodName) {
-                              const food = FOOD_DATABASE.find(f => f.name === foodName && f.category === selectedFoodCategory);
+                              const food = allAvailableFoods.find(f => f.name === foodName && f.category === selectedFoodCategory);
                               if (food) {
                                 const targetCategory = (food.category === '火鍋' || food.category === '飲料' || food.category === '鹹酥雞') ? '外食類' : food.category;
+                                const kcalVal = (food.kcal !== undefined && food.kcal !== null) ? food.kcal : (food.carbs * 4 + food.protein * 4 + food.fat * 9);
                                 setState({
                                   ...state,
                                   diet: {
                                     ...state.diet,
-                                    logs: [...state.diet.logs, { ...food, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
+                                    logs: [...state.diet.logs, { ...food, kcal: kcalVal, calories: kcalVal, category: targetCategory, id: Math.random().toString(36).substr(2, 9), qty: portionInput, meal: selectedMeal }]
                                   }
                                 });
                                 setSelectedFoodItem('');
@@ -5899,7 +6245,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         className="w-full flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         <option value="">選擇食物...</option>
-                        {selectedFoodCategory && FOOD_DATABASE.filter(f => f.category === selectedFoodCategory).map(f => (
+                        {selectedFoodCategory && allAvailableFoods.filter(f => f.category === selectedFoodCategory).map(f => (
                           <option key={f.name} value={f.name}>{f.name}</option>
                         ))}
                       </select>
@@ -5907,6 +6253,193 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       <div className="text-[11px] text-slate-400 font-medium pl-1">
                         ※ 滷味、鹹酥雞、火鍋資料取自好食課資料庫
                       </div>
+                    </div>
+
+                    {/* 自行新增食物 (Custom Food Entry) */}
+                    <div className="mb-4 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 border border-blue-200/80 rounded-xl p-3.5 shadow-sm space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1 bg-blue-600 text-white rounded-lg shadow-2xs">
+                            <Plus className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <span className="text-sm font-bold text-slate-800">
+                              自行新增食物
+                            </span>
+                            <span className="text-[11px] text-blue-600 font-medium ml-2 hidden sm:inline">
+                              (輸入食物名稱、醣類、蛋白質、脂肪與熱量，同步至矩陣與飲食內容)
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCustomFoodFormOpen(!customFoodFormOpen)}
+                          className="text-xs font-bold px-2.5 py-1 bg-white hover:bg-blue-50 text-blue-700 rounded-lg border border-blue-200 transition-all cursor-pointer shadow-3xs flex items-center gap-1"
+                        >
+                          {customFoodFormOpen ? '收合表單 ▲' : '展開表單 ▼'}
+                        </button>
+                      </div>
+
+                      {customFoodSuccessMsg && (
+                        <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg font-bold flex items-center gap-2">
+                          <span>{customFoodSuccessMsg}</span>
+                        </div>
+                      )}
+
+                      {customFoodFormOpen && (
+                        <div className="space-y-3 pt-1">
+                          {/* Row 1: Name, Category, Meal, Portions */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                食物名稱 <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="如：梁社漢排骨便當、自製沙拉..."
+                                value={customFoodName}
+                                onChange={e => setCustomFoodName(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">食物類別 (對應矩陣橫列)</label>
+                              <select
+                                value={customFoodCategory}
+                                onChange={e => setCustomFoodCategory(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              >
+                                {DIET_MATRIX_ROW_CATEGORIES.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">餐次</label>
+                              <select
+                                value={customFoodMeal}
+                                onChange={e => setCustomFoodMeal(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              >
+                                {MEALS.map(m => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">新增份數</label>
+                              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+                                <button
+                                  type="button"
+                                  onClick={() => setCustomFoodQty(Math.max(0.5, customFoodQty - 0.5))}
+                                  className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-md font-bold text-xs"
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  min="0.1"
+                                  step="0.1"
+                                  value={customFoodQty}
+                                  onChange={e => setCustomFoodQty(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                                  className="w-full text-center bg-white text-xs font-bold text-slate-800 focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setCustomFoodQty(customFoodQty + 0.5)}
+                                  className="w-7 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-md font-bold text-xs"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Row 2: Carbs, Protein, Fat, Calories, and Add Button */}
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-end pt-1">
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">醣類 (g)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                placeholder="0"
+                                value={customFoodCarbs}
+                                onChange={e => handleCustomCarbsChange(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">蛋白質 (g)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                placeholder="0"
+                                value={customFoodProtein}
+                                onChange={e => handleCustomProteinChange(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-slate-700">脂肪 (g)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                placeholder="0"
+                                value={customFoodFat}
+                                onChange={e => handleCustomFatChange(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-slate-700">熱量 (kcal)</label>
+                                <button
+                                  type="button"
+                                  onClick={handleAutoCalcKcal}
+                                  title="依 4/4/9 自動推算"
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 underline font-normal"
+                                >
+                                  自動推算
+                                </button>
+                              </div>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                placeholder="0"
+                                value={customFoodKcal}
+                                onChange={e => handleCustomKcalChange(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold text-blue-900"
+                              />
+                            </div>
+
+                            <div className="col-span-2 sm:col-span-1">
+                              <button
+                                type="button"
+                                onClick={handleAddCustomFood}
+                                className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <Plus className="w-4 h-4" />
+                                新增食物
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                            <span>※ 熱量預設依三大營養素 (4/4/9 kcal/g) 自動計算，亦可手動調整。</span>
+                            <span>新增後將即時寫入「{customFoodMeal}」份數矩陣與「飲食內容」清單</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -6118,7 +6651,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                                 <td className="px-4 py-3 text-right">{(log.carbs * log.qty).toFixed(1)}</td>
                                 <td className="px-4 py-3 text-right">{(log.protein * log.qty).toFixed(1)}</td>
                                 <td className="px-4 py-3 text-right">{(log.fat * log.qty).toFixed(1)}</td>
-                                <td className="px-4 py-3 text-right">{(log.kcal * log.qty).toFixed(0)}</td>
+                                <td className="px-4 py-3 text-right">{((typeof log.kcal === 'number' ? log.kcal : (log.carbs * 4 + log.protein * 4 + log.fat * 9)) * log.qty).toFixed(0)}</td>
                                 <td className="px-4 py-3 text-right">{((typeof log.fiber === 'number' ? log.fiber : parseFloat(log.fiber || '0') || 0) * log.qty).toFixed(1)}</td>
                                 <td className="px-4 py-3 text-right">{((typeof log.saturatedFat === 'number' ? log.saturatedFat : parseFloat(log.saturatedFat || '0') || 0) * log.qty).toFixed(1)}</td>
                                 <td className="px-4 py-3 text-right">{((typeof log.transFat === 'number' ? log.transFat : parseFloat(log.transFat || '0') || 0) * log.qty).toFixed(1)}</td>
