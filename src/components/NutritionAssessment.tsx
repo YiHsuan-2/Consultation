@@ -60,9 +60,9 @@ export function NutritionAssessment({ assessment, onChange }: Props) {
       carbs: food.carbs,
       protein: food.protein,
       fat: food.fat,
-      na: food.na,
-      k: food.k,
-      p: food.p,
+      na: typeof food.na === 'number' ? food.na : (parseFloat(String(food.na || '0')) || 0),
+      k: typeof food.k === 'number' ? food.k : (parseFloat(String(food.k || '0')) || 0),
+      p: typeof food.p === 'number' ? food.p : (parseFloat(String(food.p || '0')) || 0),
       calories: (food.carbs * 4) + (food.protein * 4) + (food.fat * 9),
       meal: 'lunch'
     };
