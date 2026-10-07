@@ -385,7 +385,7 @@ export const generateWordDoc = async (state: AppState) => {
             const carbs = (item.carbs || 0) * qty;
             const protein = (item.protein || 0) * qty;
             const fat = (item.fat || 0) * qty;
-            const kcal = ((item.carbs || 0) * 4 + (item.protein || 0) * 4 + (item.fat || 0) * 9) * qty;
+            const kcal = (typeof item.kcal === 'number' ? item.kcal : ((item.carbs || 0) * 4 + (item.protein || 0) * 4 + (item.fat || 0) * 9)) * qty;
             return {
               carbs: acc.carbs + carbs,
               protein: acc.protein + protein,
@@ -527,7 +527,7 @@ export const generateWordDoc = async (state: AppState) => {
                     createValueCell(`${(item.carbs * item.qty).toFixed(1)}`),
                     createValueCell(`${(item.protein * item.qty).toFixed(1)}`),
                     createValueCell(`${(item.fat * item.qty).toFixed(1)}`),
-                    createValueCell(`${Math.round((item.carbs * 4 + item.protein * 4 + item.fat * 9) * item.qty)}`),
+                    createValueCell(`${Math.round((typeof item.kcal === 'number' ? item.kcal : (item.carbs * 4 + item.protein * 4 + item.fat * 9)) * item.qty)}`),
                     createValueCell(`${(fiber * item.qty).toFixed(1)}`),
                     createValueCell(`${(satFat * item.qty).toFixed(1)}`),
                     createValueCell(`${(transFat * item.qty).toFixed(transFat === 0 ? 0 : 2)}`),
@@ -970,7 +970,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
               const carbs = (item.carbs || 0) * qty;
               const protein = (item.protein || 0) * qty;
               const fat = (item.fat || 0) * qty;
-              const kcal = ((item.carbs || 0) * 4 + (item.protein || 0) * 4 + (item.fat || 0) * 9) * qty;
+              const kcal = (typeof item.kcal === 'number' ? item.kcal : ((item.carbs || 0) * 4 + (item.protein || 0) * 4 + (item.fat || 0) * 9)) * qty;
               return {
                 carbs: acc.carbs + carbs,
                 protein: acc.protein + protein,
