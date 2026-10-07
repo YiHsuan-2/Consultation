@@ -1,3 +1,5 @@
+import { FoodItem } from '../types';
+
 export const EXCHANGE_VALUES = {
   '低脂乳品類': { carbs: 12, protein: 8, fat: 4, calories: 120, na: 120, k: 380, p: 250 },
   '全脂乳品類': { carbs: 12, protein: 8, fat: 8, calories: 150, na: 110, k: 350, p: 230 },
