@@ -1262,7 +1262,7 @@ export default function App() {
   }, [customFoods]);
 
   // Main custom food form states in Diet Hx
-  const [customFoodFormOpen, setCustomFoodFormOpen] = useState(true);
+  const [customFoodFormOpen, setCustomFoodFormOpen] = useState(false);
   const [customFoodName, setCustomFoodName] = useState('');
   const [customFoodCategory, setCustomFoodCategory] = useState('外食類');
   const [customFoodMeal, setCustomFoodMeal] = useState('早餐');
@@ -5367,7 +5367,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             setIsMedDropdownOpen(true);
                           }}
                           onFocus={() => setIsMedDropdownOpen(true)}
-                          placeholder="搜尋藥物資料庫 (例如：Lipitor, Glucophage, 降血壓...)"
+                          placeholder="搜尋藥物資料庫 (例如：Lipitor, 降血壓...)"
                           className="w-full pl-9 pr-8 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
                         />
                         {medSearchInput && (
