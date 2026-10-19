@@ -1264,8 +1264,8 @@ export default function App() {
 
   // Smart intake notes recommendation states and handlers
   const dietSuggestions = useMemo(() => {
-    return parseDietIntakeNotes(state.diet.intakeNotes || '', allAvailableFoods, selectedMeal || '早餐');
-  }, [state.diet.intakeNotes, allAvailableFoods, selectedMeal]);
+    return parseDietIntakeNotes(state.diet.intakeNotes || '', FOOD_DATABASE, selectedMeal || '早餐');
+  }, [state.diet.intakeNotes, selectedMeal]);
 
   const [suggestionQuantities, setSuggestionQuantities] = useState<Record<string, number>>({});
   const [smartAddFeedback, setSmartAddFeedback] = useState<string>('');
