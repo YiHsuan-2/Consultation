@@ -6517,13 +6517,13 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1.5">
                       <span className="text-xs sm:text-sm font-bold text-slate-700 flex items-center gap-1.5 flex-wrap">
                         <Utensils className="w-4 h-4 text-blue-600" />
-                        飲食史份數矩陣 (橫軸：餐次 | 縱軸：主要食物類別)
+                        飲食史份數矩陣
                         <span className="text-[10px] text-blue-600 font-normal bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 flex items-center gap-1">
                           💡 雙擊儲存格可快速 修改/追加食物
                         </span>
                       </span>
                       <span className="text-xs text-slate-500 font-medium">
-                        單位：份量數值 (依輸入顯示)
+                        單位：份量數值
                       </span>
                     </div>
                     <div className="overflow-x-auto">
