@@ -550,7 +550,8 @@ const GuidelineCheckbox = ({ label, id, state, setState }: { label: string, id: 
           [id]: e.target.checked
         }
       })}
-      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:rin
+g-blue-500"
     />
     <span className="text-sm text-slate-700">{label}</span>
   </label>
@@ -4148,7 +4149,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-150 rounded-lg hover:bg-blue-100 text-sm transition-colors shadow-sm cursor-pointer font-medium"
                     >
                       <ArrowRight className="w-4 h-4" />
-                      同步至監測紀錄
+                      同步至監測(體)
                     </button>
                     <button 
                       onClick={handleSave}
@@ -4294,7 +4295,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                               {sortedWeightHistory.length === 0 ? (
                                 <tr>
                                   <td colSpan={7} className="px-3 py-6 text-center text-slate-450 italic">
-                                    尚無體位歷史紀錄。在上方輸入相關數據並按下「同步至監測紀錄」即可在此顯示。
+                                    尚無體位歷史紀錄。在上方輸入相關數據並按下「同步至監測(體)」即可在此顯示。
                                   </td>
                                 </tr>
                               ) : (
@@ -4769,7 +4770,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-150 rounded-lg hover:bg-blue-100 text-sm transition-colors shadow-sm"
                     >
                       <ArrowRight className="w-4 h-4" />
-                      同步至監測紀錄
+                      同步至監測(生)
                     </button>
                     <button 
                       onClick={handleSave}
@@ -5424,7 +5425,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                       <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
                         <Pill className="w-4 h-4 text-blue-600" />
-                        目前服用藥物 (Current Medications)
+                        Current Medications
                       </label>
                       <span className="text-xs text-slate-400 font-medium">
                         ※ 搜尋資料庫新增
@@ -5948,7 +5949,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         }}
                         className="px-4 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer"
                       >
-                        <Save className="w-3.5 h-3.5" /> 儲存/同步此日飲食至歷史紀錄
+                        <Save className="w-3.5 h-3.5" /> 儲存diet
                       </button>
                     </div>
 
@@ -6521,9 +6522,6 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         <span className="text-[10px] text-blue-600 font-normal bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100 flex items-center gap-1">
                           💡 雙擊儲存格可快速 修改/追加食物
                         </span>
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        單位：份量數值
                       </span>
                     </div>
                     <div className="overflow-x-auto">
