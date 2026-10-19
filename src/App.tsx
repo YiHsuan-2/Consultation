@@ -6634,7 +6634,6 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                         飲食攝取備註
                       </label>
                       <span className="text-[11px] text-slate-500 font-medium">
-                        💡 支援輸入關鍵字自動推薦加入飲食史份數矩陣（如：早餐 荷包蛋+蔬菜、午餐 鍋燒意麵）
                       </span>
                     </div>
 
@@ -6642,7 +6641,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       value={state.diet.intakeNotes || ''}
                       onChange={e => setState({...state, diet: {...state.diet, intakeNotes: e.target.value}})}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-24 bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                      placeholder="填寫飲食攝取備註，例如：&#10;早餐&#10;荷包蛋+蔬菜&#10;午餐&#10;鍋燒意麵"
+                      placeholder="填寫飲食攝取備註"
                     ></textarea>
 
                     {/* 推薦加入的選項（僅出現食物跟餐次） */}
