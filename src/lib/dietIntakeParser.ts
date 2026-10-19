@@ -174,12 +174,12 @@ const findBestFoodInDatabase = (cleanName: string, allFoods: FoodItem[]): FoodIt
   return null;
 };
 
+// Exclusively compare against FOOD_DATABASE from src/constants.ts
 export const parseDietIntakeNotes = (
   text: string,
-  foodsToMatch: FoodItem[] = FOOD_DATABASE,
   defaultMeal: string = '早餐'
 ): DietSuggestion[] => {
-  const allFoods = foodsToMatch && foodsToMatch.length > 0 ? foodsToMatch : FOOD_DATABASE;
+  const allFoods = FOOD_DATABASE;
   if (!text || !text.trim() || !allFoods || allFoods.length === 0) return [];
 
   const lines = text.split(/\r?\n/);
