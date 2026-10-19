@@ -92,6 +92,7 @@ import {
   BIO_RANGES
 } from './constants';
 import { MEDICATIONS } from './constants/medications';
+import { parseDietIntakeNotes, DietSuggestion } from './lib/dietIntakeParser';
  
 const DIAG_PROBLEM_INFO: { [key: string]: { definition: string; notes?: string } } = {
 "熱量消耗增加(NI1.1)": {
@@ -1260,6 +1261,82 @@ export default function App() {
   const allAvailableFoods = useMemo(() => {
     return [...FOOD_DATABASE, ...customFoods];
   }, [customFoods]);
+
+  // Smart intake notes recommendation states and handlers
+  const dietSuggestions = useMemo(() => {
+    return parseDietIntakeNotes(state.diet.intakeNotes || '', allAvailableFoods, selectedMeal || '早餐');
+  }, [state.diet.intakeNotes, allAvailableFoods, selectedMeal]);
+
+  const [suggestionQuantities, setSuggestionQuantities] = useState<Record<string, number>>({});
+  const [smartAddFeedback, setSmartAddFeedback] = useState<string>('');
+
+  const handleAddSuggestion = (item: DietSuggestion, overrideQty?: number) => {
+    const qty = overrideQty !== undefined ? overrideQty : (suggestionQuantities[item.id] ?? item.qty);
+    const targetCategory = (item.food.category === '火鍋' || item.food.category === '飲料' || item.food.category === '鹹酥雞') ? '外食類' : item.food.category;
+    const kcalVal = (item.food.kcal !== undefined && item.food.kcal !== null)
+      ? item.food.kcal
+      : (item.food.carbs * 4 + item.food.protein * 4 + item.food.fat * 9);
+
+    const newLog = {
+      ...item.food,
+      kcal: kcalVal,
+      calories: kcalVal,
+      category: targetCategory,
+      id: Math.random().toString(36).substr(2, 9),
+      qty: qty,
+      meal: item.meal
+    };
+
+    setState(prev => ({
+      ...prev,
+      diet: {
+        ...prev.diet,
+        logs: [...prev.diet.logs, newLog]
+      }
+    }));
+
+    setSmartAddFeedback(`已新增「${item.food.name} (${qty}份)」至 ${item.meal} 飲食史！`);
+    setTimeout(() => setSmartAddFeedback(''), 3000);
+  };
+
+  const handleAddAllSuggestions = () => {
+    if (dietSuggestions.length === 0) return;
+
+    // Prioritize items not yet logged in that meal
+    const notAddedYet = dietSuggestions.filter(item => {
+      return !state.diet.logs.some(l => l.meal === item.meal && l.name === item.food.name);
+    });
+
+    const itemsToAdd = notAddedYet.length > 0 ? notAddedYet : dietSuggestions;
+
+    const newLogs = itemsToAdd.map(item => {
+      const qty = suggestionQuantities[item.id] ?? item.qty;
+      const targetCategory = (item.food.category === '火鍋' || item.food.category === '飲料' || item.food.category === '鹹酥雞') ? '外食類' : item.food.category;
+      const kcalVal = (item.food.kcal !== undefined && item.food.kcal !== null)
+        ? item.food.kcal
+        : (item.food.carbs * 4 + item.food.protein * 4 + item.food.fat * 9);
+      return {
+        ...item.food,
+        kcal: kcalVal,
+        calories: kcalVal,
+        category: targetCategory,
+        id: Math.random().toString(36).substr(2, 9),
+        qty: qty,
+        meal: item.meal
+      };
+    });
+
+    setState(prev => ({
+      ...prev,
+      diet: {
+        ...prev.diet,
+        logs: [...prev.diet.logs, ...newLogs]
+      }
+    }));
+
+    setSmartAddFeedback(`已成功將 ${newLogs.length} 項食物一鍵加入飲食史份數矩陣！`);
+    setTimeout(() => setSmartAddFeedback(''), 3500);
+  };
 
   // Main custom food form states in Diet Hx
   const [customFoodFormOpen, setCustomFoodFormOpen] = useState(false);
@@ -6550,17 +6627,150 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                   </div>
 
                   {/* 飲食攝取備註 */}
-                  <div className="space-y-1.5 mb-6 bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm">
-                    <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                      <FileText className="w-4 h-4 text-blue-600" />
-                      飲食攝取備註
-                    </label>
+                  <div className="space-y-2 mb-6 bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        飲食攝取備註
+                      </label>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        💡 支援輸入關鍵字自動推薦加入飲食史份數矩陣（如：早餐 荷包蛋+蔬菜、午餐 鍋燒意麵）
+                      </span>
+                    </div>
+
                     <textarea 
                       value={state.diet.intakeNotes || ''}
                       onChange={e => setState({...state, diet: {...state.diet, intakeNotes: e.target.value}})}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-20 bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                      placeholder="填寫關於此次飲食攝取、餐次熱量調配或飲食評估細節的備註..."
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-24 bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                      placeholder="填寫飲食攝取備註，例如：&#10;早餐&#10;荷包蛋+蔬菜&#10;午餐&#10;鍋燒意麵"
                     ></textarea>
+
+                    {/* 關鍵字智慧推薦面板 (Smart Keyword Recommendations) */}
+                    {dietSuggestions.length > 0 && (
+                      <div className="mt-2.5 p-3.5 bg-gradient-to-br from-indigo-50/80 via-blue-50/60 to-white border border-blue-200 rounded-xl shadow-xs space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1 bg-indigo-600 text-white rounded-lg shadow-2xs">
+                              <Sparkles className="w-4 h-4" />
+                            </span>
+                            <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                              智慧偵測食物推薦
+                              <span className="text-[11px] font-semibold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                                辨識出 {dietSuggestions.length} 項
+                              </span>
+                            </span>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={handleAddAllSuggestions}
+                            className="text-xs font-bold px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs hover:shadow transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            一鍵全部加入飲食史
+                          </button>
+                        </div>
+
+                        {smartAddFeedback && (
+                          <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg font-bold flex items-center gap-1.5 animate-fadeIn">
+                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>{smartAddFeedback}</span>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                          {dietSuggestions.map(item => {
+                            const curQty = suggestionQuantities[item.id] ?? item.qty;
+                            const existingLogs = state.diet.logs.filter(l => l.meal === item.meal && l.name === item.food.name);
+                            const isAdded = existingLogs.length > 0;
+                            const totalExistingQty = existingLogs.reduce((sum, l) => sum + (l.qty || 0), 0);
+                            const kcal = (item.food.kcal !== undefined && item.food.kcal !== null)
+                              ? Math.round(item.food.kcal * curQty)
+                              : Math.round((item.food.carbs * 4 + item.food.protein * 4 + item.food.fat * 9) * curQty);
+
+                            return (
+                              <div 
+                                key={item.id}
+                                className={`p-2.5 rounded-lg border transition-all ${
+                                  isAdded 
+                                    ? 'bg-emerald-50/50 border-emerald-200/90 shadow-2xs' 
+                                    : 'bg-white border-slate-200 hover:border-blue-300 shadow-2xs'
+                                } flex flex-col justify-between gap-2`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-1 mb-1">
+                                    <span className="text-[11px] font-black px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                                      {item.meal}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                                      {item.food.category}
+                                    </span>
+                                  </div>
+                                  <div className="font-bold text-xs text-slate-800 truncate" title={item.food.name}>
+                                    {item.food.name}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 mt-0.5">
+                                    約 {kcal} kcal · 醣 {(item.food.carbs * curQty).toFixed(1)}g · 蛋 {(item.food.protein * curQty).toFixed(1)}g · 脂 {(item.food.fat * curQty).toFixed(1)}g
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                                  {/* Portion stepper */}
+                                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-1 py-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSuggestionQuantities(prev => ({
+                                        ...prev,
+                                        [item.id]: Math.max(0.5, (prev[item.id] ?? item.qty) - 0.5)
+                                      }))}
+                                      className="text-xs text-slate-600 hover:text-blue-600 px-1 font-bold cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="text-xs font-bold text-slate-700 min-w-[32px] text-center">
+                                      {curQty}份
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSuggestionQuantities(prev => ({
+                                        ...prev,
+                                        [item.id]: (prev[item.id] ?? item.qty) + 0.5
+                                      }))}
+                                      className="text-xs text-slate-600 hover:text-blue-600 px-1 font-bold cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+
+                                  {/* Add button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddSuggestion(item, curQty)}
+                                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                                      isAdded
+                                        ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700 shadow-2xs'
+                                    }`}
+                                  >
+                                    {isAdded ? (
+                                      <>
+                                        <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>已加({totalExistingQty}) +1</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Plus className="w-3.5 h-3.5" />
+                                        <span>加入</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* 飲食內容 (Diet Content) */}
