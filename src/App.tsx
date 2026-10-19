@@ -6629,21 +6629,16 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
 
                   {/* 飲食攝取備註 */}
                   <div className="space-y-2 mb-6 bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-blue-600" />
                         飲食攝取備註
                       </label>
-                      <span className="text-[11px] text-slate-500 font-medium">
-                      </span>
-                    </div>
-
+                      
                     <textarea 
                       value={state.diet.intakeNotes || ''}
                       onChange={e => setState({...state, diet: {...state.diet, intakeNotes: e.target.value}})}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 h-24 bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                      placeholder="填寫飲食攝取備註"
-                    ></textarea>
+                   ></textarea>
 
                     {/* 推薦加入的選項（僅出現食物跟餐次） */}
                     {dietSuggestions.length > 0 && (
