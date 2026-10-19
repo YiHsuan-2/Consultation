@@ -6843,9 +6843,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                     )}
                   </div>
                 </div>
-              </section>
-            </motion.div>
-          )}
+               )}
 
           {activeTab === 'diagnosis' && (
             <motion.div
