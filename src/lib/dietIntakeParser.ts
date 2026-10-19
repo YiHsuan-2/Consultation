@@ -1,4 +1,5 @@
 import { FoodItem } from '../types';
+import { FOOD_DATABASE } from '../constants';
 
 export interface DietSuggestion {
   id: string;
@@ -175,9 +176,10 @@ const findBestFoodInDatabase = (cleanName: string, allFoods: FoodItem[]): FoodIt
 
 export const parseDietIntakeNotes = (
   text: string,
-  allFoods: FoodItem[],
+  foodsToMatch: FoodItem[] = FOOD_DATABASE,
   defaultMeal: string = '早餐'
 ): DietSuggestion[] => {
+  const allFoods = foodsToMatch && foodsToMatch.length > 0 ? foodsToMatch : FOOD_DATABASE;
   if (!text || !text.trim() || !allFoods || allFoods.length === 0) return [];
 
   const lines = text.split(/\r?\n/);
