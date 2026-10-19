@@ -6709,6 +6709,8 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             );
                           })}
                         </div>
+                      </div>
+                    )}
 
                   {/* 飲食內容 (Diet Content) */}
                   <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4 space-y-3 shadow-xs">
@@ -6842,8 +6844,11 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       </motion.div>
                     )}
                   </div>
-                </div>
-               )}
+                </div>  {/* 閉合「飲食內容」或內層容器 */}
+              </div>    {/* 閉合「飲食攝取備註」最外層的 div */}
+            </section>
+          </motion.div>
+        )}
 
           {activeTab === 'diagnosis' && (
             <motion.div
