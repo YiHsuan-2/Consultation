@@ -1263,8 +1263,9 @@ export default function App() {
   }, [customFoods]);
 
   // Smart intake notes recommendation states and handlers
+  // 比對資料庫僅使用 src/constants.ts 內容 (FOOD_DATABASE)
   const dietSuggestions = useMemo(() => {
-    return parseDietIntakeNotes(state.diet.intakeNotes || '', FOOD_DATABASE, selectedMeal || '早餐');
+    return parseDietIntakeNotes(state.diet.intakeNotes || '', selectedMeal || '早餐');
   }, [state.diet.intakeNotes, selectedMeal]);
 
   const [suggestionQuantities, setSuggestionQuantities] = useState<Record<string, number>>({});
