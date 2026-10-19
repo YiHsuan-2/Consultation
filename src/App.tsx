@@ -6709,6 +6709,8 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             );
                           })}
                         </div>
+                      </div>
+                    )}
 
                   {/* 飲食內容 (Diet Content) */}
                   <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4 space-y-3 shadow-xs">
