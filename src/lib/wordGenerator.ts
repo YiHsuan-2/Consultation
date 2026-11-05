@@ -36,6 +36,7 @@ const DOCX_STYLES = {
         font: { ascii: "Times New Roman", eastAsia: "Times New Roman", hAnsi: "Times New Roman" },
         size: 32, // 16pt (需求1: 一、二、三、四 Times New Roman, 16pt)
         bold: true,
+        color: "2E74B5",
       },
     },
     heading3: {
@@ -43,6 +44,7 @@ const DOCX_STYLES = {
         font: { ascii: "標楷體", eastAsia: "標楷體", hAnsi: "標楷體" },
         size: 28, // 14pt (需求2: 子標題 標楷體, 14pt)
         bold: true,
+        color: "2E74B5",
       },
     },
   },
@@ -310,75 +312,66 @@ export const generateWordDoc = async (state: AppState) => {
           ],
         }),
 
-        new Paragraph({ text: "2. 體位測量 (Anthropometry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200 } }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
+        new Paragraph({ text: "2. 體位測量 (Anthropometry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
+        ...(() => {
+          const rawH = (state.anthropometry.height || '').trim();
+          const h = rawH ? (rawH.endsWith('cm') ? rawH : `${rawH}cm`) : '--';
+          const rawW = (state.anthropometry.weight || '').trim();
+          const w = rawW ? (rawW.endsWith('kg') ? rawW : `${rawW}kg`) : '--';
+          const wDate = state.anthropometry.weightDate ? ` (${state.anthropometry.weightDate})` : '';
+
+          const bmiVal = state.anthropometry.bmi || '--';
+          const bmiNum = parseFloat(state.anthropometry.bmi || '0');
+          let bmiStatus = '';
+          if (!isNaN(bmiNum) && bmiNum > 0) {
+            if (bmiNum < 18.5) bmiStatus = ' 體重過輕';
+            else if (bmiNum < 24) bmiStatus = ' 正常';
+            else if (bmiNum < 27) bmiStatus = ' 過重';
+            else bmiStatus = ' 肥胖';
+          }
+
+          const ibw = state.anthropometry.ibw || '--';
+          const abw = state.anthropometry.abw || '--';
+          const bwChange = state.anthropometry.weightChange || '近期無變化';
+
+          const rawWaist = (state.anthropometry.waist || '').trim();
+          const waistStr = rawWaist ? (rawWaist.endsWith('cm') ? rawWaist : `${rawWaist}cm`) : '--';
+          const rawFat = (state.anthropometry.bodyFat || '').trim();
+          const fatStr = rawFat ? (rawFat.endsWith('%') ? rawFat : `${rawFat}%`) : '--';
+
+          return [
+            new Paragraph({
               children: [
-                createHeaderCell("身高 (cm)"), createValueCell(state.anthropometry.height),
-                createHeaderCell("體重 (kg)"), createValueCell(state.anthropometry.weight + (state.anthropometry.weightDate ? ` (${state.anthropometry.weightDate})` : '')),
+                new TextRun({ text: `• ${h} ,${w}${wDate}` }),
               ],
+              spacing: { after: 60 },
             }),
-            new TableRow({
+            new Paragraph({
               children: [
-                createHeaderCell("BMI"), createValueCell(state.anthropometry.bmi),
-                createHeaderCell("IBW / ABW"), createValueCell(`${state.anthropometry.ibw} / ${state.anthropometry.abw}`),
+                new TextRun({ text: `• BMI ${bmiVal}${bmiStatus}` }),
               ],
+              spacing: { after: 60 },
             }),
-            new TableRow({
+            new Paragraph({
               children: [
-                createHeaderCell("體脂率 (%)"), createValueCell(state.anthropometry.bodyFat),
-                createHeaderCell("水腫狀況"), createValueCell(state.anthropometry.edema),
+                new TextRun({ text: `• IBW / ABW： ${ibw} / ${abw}` }),
               ],
+              spacing: { after: 60 },
             }),
-            new TableRow({
+            new Paragraph({
               children: [
-                createHeaderCell("右手 / 左手肌肉量 (kg)"), createValueCell(`${state.anthropometry.rightArmMuscle || '--'} / ${state.anthropometry.leftArmMuscle || '--'}`),
-                createHeaderCell("右腳 / 左腳肌肉量 (kg)"), createValueCell(`${state.anthropometry.rightLegMuscle || '--'} / ${state.anthropometry.leftLegMuscle || '--'}`),
+                new TextRun({ text: `• BW change：${bwChange}` }),
               ],
+              spacing: { after: 60 },
             }),
-            new TableRow({
+            new Paragraph({
               children: [
-                createHeaderCell("手握力 (kg)"), createValueCell(state.anthropometry.gripStrength || '--'),
-                createHeaderCell("ASM 肌肉量 (ASMI)"), createValueCell((() => {
-                  const h = parseFloat(state.anthropometry.height);
-                  const r = parseFloat(state.anthropometry.rightArmMuscle || '');
-                  const l = parseFloat(state.anthropometry.leftArmMuscle || '');
-                  const rl = parseFloat(state.anthropometry.rightLegMuscle || '');
-                  const ll = parseFloat(state.anthropometry.leftLegMuscle || '');
-                  if (!isNaN(h) && h > 0 && !isNaN(r) && !isNaN(l) && !isNaN(rl) && !isNaN(ll)) {
-                    return `${((10000 * (r + l + rl + ll)) / (h * h)).toFixed(2)} kg/m²`;
-                  }
-                  return '--';
-                })()),
+                new TextRun({ text: `• 腰圍：${waistStr} ,體脂${fatStr}` }),
               ],
+              spacing: { after: 150 },
             }),
-            new TableRow({
-              children: [
-                createHeaderCell("校正型 (ASM/BMI)"), createValueCell((() => {
-                  const weight = parseFloat(state.anthropometry.weight);
-                  const h = parseFloat(state.anthropometry.height);
-                  const r = parseFloat(state.anthropometry.rightArmMuscle || '');
-                  const l = parseFloat(state.anthropometry.leftArmMuscle || '');
-                  const rl = parseFloat(state.anthropometry.rightLegMuscle || '');
-                  const ll = parseFloat(state.anthropometry.leftLegMuscle || '');
-                  if (!isNaN(r) && !isNaN(l) && !isNaN(rl) && !isNaN(ll)) {
-                    const sum = r + l + rl + ll;
-                    const h_m = h / 100;
-                    const computedBmi = (!isNaN(weight) && h_m > 0) ? (weight / (h_m * h_m)) : 0;
-                    const bmiVal = parseFloat(state.anthropometry.bmi) || computedBmi;
-                    if (bmiVal > 0) {
-                      return `${(sum / bmiVal).toFixed(3)} m²`;
-                    }
-                  }
-                  return '--';
-                })()),
-                createHeaderCell("肌少症評估 (AWGS 2025)"), createValueCell(state.anthropometry.sarcopeniaResult || '資料不足'),
-              ],
-            }),
-          ],
-        }),
+          ];
+        })(),
 
         new Paragraph({ text: "3. 生化數值 (Biochemistry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200 } }),
         new Table({
@@ -464,28 +457,28 @@ export const generateWordDoc = async (state: AppState) => {
               }),
               new TableRow({
                 children: [
-                  createHeaderCell("總熱量 (Total Calories)"),
+                  createHeaderCell("總熱量"),
                   createValueCell(`${totalKcal} kcal`),
                   createValueCell(totalKcal > 0 ? "依飲食詳細登錄估算" : "尚未登錄食物記錄"),
                 ]
               }),
               new TableRow({
                 children: [
-                  createHeaderCell("碳水化合物 / 醣類 (Carbohydrates)"),
+                  createHeaderCell("CHO"),
                   createValueCell(`${totalCarbs} g`),
                   createValueCell(`${carbsPct} % (${Math.round(totalCarbs * 4)} kcal)`),
                 ]
               }),
               new TableRow({
                 children: [
-                  createHeaderCell("蛋白質 (Protein)"),
+                  createHeaderCell("Protein"),
                   createValueCell(`${totalProtein} g`),
                   createValueCell(`${proteinPct} % (${Math.round(totalProtein * 4)} kcal)`),
                 ]
               }),
               new TableRow({
                 children: [
-                  createHeaderCell("脂肪 (Fat / Lipids)"),
+                  createHeaderCell("Fat / Lipids"),
                   createValueCell(`${totalFat} g`),
                   createValueCell(`${fatPct} % (${Math.round(totalFat * 9)} kcal)`),
                 ]
@@ -505,14 +498,14 @@ export const generateWordDoc = async (state: AppState) => {
         })(),
         state.diet.notes ? new Paragraph({
           children: [
-            new TextRun({ text: "飲食史備註: ", bold: true }),
+            new TextRun({ text: "飲食傾向：", bold: true }),
             new TextRun({ text: state.diet.notes }),
           ],
           spacing: { before: 100 }
         }) : new Paragraph({ text: "" }),
         state.diet.intakeNotes ? new Paragraph({
           children: [
-            new TextRun({ text: "飲食攝取備註: ", bold: true }),
+            new TextRun({ text: "一日飲食內容:", bold: true }),
             new TextRun({ text: state.diet.intakeNotes }),
           ],
           spacing: { before: 100 }
@@ -524,66 +517,101 @@ export const generateWordDoc = async (state: AppState) => {
           heading: HeadingLevel.HEADING_3, 
           spacing: { before: 200, after: 100 } 
         }),
-        state.diet.logs.length === 0 ? new Paragraph({ text: "目前無詳細登錄之食物記錄" }) : new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createHeaderCell("餐次"), 
-                createHeaderCell("食物名稱"), 
-                createHeaderCell("主要類別"), 
-                createHeaderCell("份數"),
-                createHeaderCell("醣類 (g)"),
-                createHeaderCell("蛋白質 (g)"),
-                createHeaderCell("脂肪 (g)"),
-                createHeaderCell("熱量 (kcal)"),
-                createHeaderCell("膳食纖維 (g)"),
-                createHeaderCell("飽和脂肪 (g)"),
-                createHeaderCell("反式脂肪 (g)"),
-                createHeaderCell("膽固醇 (mg)"),
-                createHeaderCell("鈉 Na (mg)"),
-                createHeaderCell("鉀 K (mg)"),
-                createHeaderCell("磷 P (mg)")
-              ]
-            }),
-            ...[...state.diet.logs]
-              .sort((a, b) => {
-                const order = ["早餐", "早點", "午餐", "午點", "晚餐", "晚點"];
-                const idxA = order.indexOf(a.meal);
-                const idxB = order.indexOf(b.meal);
-                return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
-              })
-              .map(item => {
-                const na = typeof item.na === 'number' ? item.na : parseFloat(item.na || '0') || 0;
-                const k = typeof item.k === 'number' ? item.k : parseFloat(item.k || '0') || 0;
-                const p = typeof item.p === 'number' ? item.p : parseFloat(item.p || '0') || 0;
-                const fiber = typeof item.fiber === 'number' ? item.fiber : parseFloat(item.fiber as string || '0') || 0;
-                const satFat = typeof item.saturatedFat === 'number' ? item.saturatedFat : parseFloat(item.saturatedFat as string || '0') || 0;
-                const transFat = typeof item.transFat === 'number' ? item.transFat : parseFloat(item.transFat as string || '0') || 0;
-                const cholesterol = typeof item.cholesterol === 'number' ? item.cholesterol : parseFloat(item.cholesterol as string || '0') || 0;
-                
+        state.diet.logs.length === 0 ? new Paragraph({ text: "目前無詳細登錄之食物記錄" }) : (() => {
+          let sumCarbs = 0;
+          let sumProtein = 0;
+          let sumFat = 0;
+          let sumKcal = 0;
+
+          state.diet.logs.forEach(item => {
+            const qty = item.qty || 0;
+            sumCarbs += (item.carbs || 0) * qty;
+            sumProtein += (item.protein || 0) * qty;
+            sumFat += (item.fat || 0) * qty;
+            const itemKcal = (typeof item.kcal === 'number' ? item.kcal : ((item.carbs || 0) * 4 + (item.protein || 0) * 4 + (item.fat || 0) * 9)) * qty;
+            sumKcal += itemKcal;
+          });
+
+          const roundedTotalKcal = Math.round(sumKcal);
+
+          const formatPct = (macroKcal: number) => {
+            if (roundedTotalKcal === 0) return "--";
+            const num = (macroKcal / roundedTotalKcal) * 100;
+            const str = num.toFixed(1);
+            return str.endsWith('.0') ? `${Math.round(num)}%` : `${str}%`;
+          };
+
+          const choPctStr = formatPct(sumCarbs * 4);
+          const proPctStr = formatPct(sumProtein * 4);
+          const fatPctStr = formatPct(sumFat * 9);
+
+          const sortedLogs = [...state.diet.logs].sort((a, b) => {
+            const order = ["早餐", "早點", "午餐", "午點", "晚餐", "晚點"];
+            const idxA = order.indexOf(a.meal);
+            const idxB = order.indexOf(b.meal);
+            return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+          });
+
+          return new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  createHeaderCell("餐次"), 
+                  createHeaderCell("食物名稱"), 
+                  createHeaderCell("份數"),
+                  createHeaderCell("醣類 (g)"),
+                  createHeaderCell("蛋白質 (g)"),
+                  createHeaderCell("脂肪 (g)"),
+                  createHeaderCell("熱量 (kcal)"),
+                ]
+              }),
+              ...sortedLogs.map(item => {
+                const qty = item.qty || 0;
+                const carbs = (item.carbs || 0) * qty;
+                const protein = (item.protein || 0) * qty;
+                const fat = (item.fat || 0) * qty;
+                const kcal = Math.round((typeof item.kcal === 'number' ? item.kcal : (item.carbs * 4 + item.protein * 4 + item.fat * 9)) * qty);
+
                 return new TableRow({
                   children: [
                     createValueCell(item.meal),
                     createValueCell(item.name),
-                    createValueCell(item.category || "N/A"),
-                    createValueCell(`${item.qty} 份`),
-                    createValueCell(`${(item.carbs * item.qty).toFixed(1)}`),
-                    createValueCell(`${(item.protein * item.qty).toFixed(1)}`),
-                    createValueCell(`${(item.fat * item.qty).toFixed(1)}`),
-                    createValueCell(`${Math.round((typeof item.kcal === 'number' ? item.kcal : (item.carbs * 4 + item.protein * 4 + item.fat * 9)) * item.qty)}`),
-                    createValueCell(`${(fiber * item.qty).toFixed(1)}`),
-                    createValueCell(`${(satFat * item.qty).toFixed(1)}`),
-                    createValueCell(`${(transFat * item.qty).toFixed(transFat === 0 ? 0 : 2)}`),
-                    createValueCell(`${(cholesterol * item.qty).toFixed(0)}`),
-                    createValueCell(`${(na * item.qty).toFixed(0)}`),
-                    createValueCell(`${(k * item.qty).toFixed(0)}`),
-                    createValueCell(`${(p * item.qty).toFixed(0)}`),
+                    createValueCell(`${qty} 份`),
+                    createValueCell(carbs.toFixed(1)),
+                    createValueCell(protein.toFixed(1)),
+                    createValueCell(fat.toFixed(1)),
+                    createValueCell(`${kcal}`),
                   ]
                 });
-              })
-          ]
-        }),
+              }),
+              // 加總 Row
+              new TableRow({
+                children: [
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell(sumCarbs.toFixed(1), "F1F5F9"),
+                  createHeaderCell(sumProtein.toFixed(1), "F1F5F9"),
+                  createHeaderCell(sumFat.toFixed(1), "F1F5F9"),
+                  createHeaderCell(`${roundedTotalKcal}`, "F1F5F9"),
+                ]
+              }),
+              // 百分比 Row
+              new TableRow({
+                children: [
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell("--", "F1F5F9"),
+                  createHeaderCell(choPctStr, "F1F5F9"),
+                  createHeaderCell(proPctStr, "F1F5F9"),
+                  createHeaderCell(fatPctStr, "F1F5F9"),
+                  createHeaderCell("--", "F1F5F9"),
+                ]
+              }),
+            ]
+          });
+        })(),
 
         new Paragraph({ text: "5. 臨床狀況 (Clinical)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
         new Table({
@@ -644,12 +672,6 @@ export const generateWordDoc = async (state: AppState) => {
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 400, after: 200 },
         }),
-        new Paragraph({ text: `飲食計畫類型: ${state.intervention.dietType}` }),
-        new Paragraph({ text: `衛教重點: ${state.intervention.educationTopics.join(", ") || "無"}` }),
-        ...(state.intervention.educationNotes ? [
-          new Paragraph({ text: `自訂衛教備註: ${state.intervention.educationNotes}` })
-        ] : []),
-        new Paragraph({ text: `轉介建議: ${state.intervention.referral || "無"}` }),
 
         // 新增/加強：建議熱量需求與三大營養素比例
         new Paragraph({ 
@@ -783,7 +805,13 @@ export const generateWordDoc = async (state: AppState) => {
           });
         })(),
 
-        new Paragraph({ text: "3. 飲食計畫 (Meal Plan)", heading: HeadingLevel.HEADING_3, spacing: { before: 200 } }),
+        new Paragraph({ text: "3. 飲食計畫 (Meal Plan)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
+        new Paragraph({ text: `飲食計畫類型: ${state.intervention.dietType || "未填寫"}` }),
+        new Paragraph({ text: `衛教重點: ${state.intervention.educationTopics.join(", ") || "無"}` }),
+        ...(state.intervention.educationNotes ? [
+          new Paragraph({ text: `自訂衛教備註: ${state.intervention.educationNotes}` })
+        ] : []),
+        new Paragraph({ text: `轉介建議: ${state.intervention.referral || "無"}`, spacing: { after: 100 } }),
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
           rows: [
