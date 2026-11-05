@@ -259,58 +259,188 @@ export const generateWordDoc = async (state: AppState) => {
           spacing: { before: 400, after: 200 },
         }),
 
-        new Paragraph({ text: "1. 個案史 (Client Hx)", heading: HeadingLevel.HEADING_3 }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createHeaderCell("性別"), createValueCell(state.clientHx.gender),
-                createHeaderCell("生日"), createValueCell(state.clientHx.birthday),
-              ],
-            }),
-            new TableRow({
-              children: [
-                createHeaderCell("工作狀況"), createValueCell(state.clientHx.job),
-                createHeaderCell("宗教/禁忌"), createValueCell(state.clientHx.region),
-              ],
-            }),
-            new TableRow({
-              children: [
-                createHeaderCell("既往病史"), createValueCell(
-                  state.clinical.medicalHx
-                    .map(h => (h === '腎臟病' && state.clinical.kidneyStage ? `腎臟病(${state.clinical.kidneyStage})` : h))
-                    .join(", ") + (state.clinical.medicalHxOther ? ` (${state.clinical.medicalHxOther})` : "")
-                ),
-                createHeaderCell("家族史"), createValueCell(state.clientHx.familyHx),
-              ],
-            }),
-            new TableRow({
-              children: [
-                createHeaderCell("社會史"), createValueCell(state.clientHx.socialHx),
-                createHeaderCell("生活習慣"), createValueCell((() => {
-                  const parts: string[] = [];
-                  if (state.clientHx.habits.smoke) {
-                    parts.push(`抽菸${state.clientHx.habits.smokeFrequency ? ` (${state.clientHx.habits.smokeFrequency})` : ''}`);
+        new Paragraph({ text: "1. 個案史 (Client Hx)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
+        ...(() => {
+          // 1. Birthday, Age, Gender: e.g. 1965/03/31, 61y/o, M
+          const bdayRaw = (state.clientHx.birthday || '').replace(/-/g, '/');
+          const ageVal = calculateAge(state.clientHx.birthday);
+          const ageStr = ageVal > 0 ? `${ageVal}y/o` : '';
+          const g = state.clientHx.gender;
+          const genderStr = (g === '男' || g === 'M' || g === 'male') ? 'M' : ((g === '女' || g === 'F' || g === 'female') ? 'F' : g);
+          const bdayLine = [bdayRaw, ageStr, genderStr].filter(Boolean).join(', ') || '--';
+
+          // 2. 工作狀況：在職中
+          const jobParts: string[] = [];
+          if (state.clientHx.job) jobParts.push(state.clientHx.job);
+          if (state.clientHx.jobDescription) jobParts.push(`(${state.clientHx.jobDescription})`);
+          const jobStr = jobParts.join(' ') || '未填寫';
+
+          // 3. SHx：與妻子、女兒同住
+          const shxStr = state.clientHx.socialHx?.trim() || '無';
+
+          // 4. FHx: HTN(M) -> Maternal HTN, HTN(F) -> Paternal HTN, etc.
+          const formatFhxItem = (str: string) => {
+            let s = str.trim();
+            s = s.replace(/([A-Za-z0-9\u4e00-\u9fa5]+)\s*[（(][Mm母][）)]/g, 'Maternal $1');
+            s = s.replace(/([A-Za-z0-9\u4e00-\u9fa5]+)\s*[（(][Ff父][）)]/g, 'Paternal $1');
+            s = s.replace(/^[Mm母]\s*[:：]\s*(.*)$/, 'Maternal $1');
+            s = s.replace(/^[Ff父]\s*[:：]\s*(.*)$/, 'Paternal $1');
+            return s.trim();
+          };
+
+          const rawFhx = (state.clientHx.familyHx || '').trim();
+          const fhxItems = rawFhx
+            ? rawFhx
+                .split(/\r?\n|[,，;；、]/)
+                .map(s => formatFhxItem(s))
+                .filter(Boolean)
+            : [];
+
+          // 5. 生活習慣：無菸，約每週一次社交聚餐，聚餐時會飲酒
+          const habits = state.clientHx.habits;
+          let habitStr = '無';
+          if (habits) {
+            if (habits.none) {
+              habitStr = '無特殊菸酒習慣';
+            } else {
+              const hParts: string[] = [];
+              if (habits.smoke) {
+                hParts.push(`抽菸${habits.smokeFrequency ? ` (${habits.smokeFrequency})` : ''}`);
+              } else {
+                hParts.push('無菸');
+              }
+              if (habits.drink) {
+                const freq = (habits.drinkFrequency || '').trim();
+                if (freq) {
+                  if (freq.includes('酒') || freq.includes('飲')) {
+                    hParts.push(freq);
+                  } else {
+                    hParts.push(`喝酒 (${freq})`);
                   }
-                  if (state.clientHx.habits.drink) {
-                    parts.push(`喝酒${state.clientHx.habits.drinkFrequency ? ` (${state.clientHx.habits.drinkFrequency})` : ''}`);
-                  }
-                  if (state.clientHx.habits.none || parts.length === 0) {
-                    return '無';
-                  }
-                  return parts.join('、');
-                })()),
-              ],
+                } else {
+                  hParts.push('有飲酒習慣');
+                }
+              } else {
+                if (!habits.smoke && !habits.drink) {
+                  hParts.length = 0;
+                  hParts.push('無菸酒習慣');
+                }
+              }
+              habitStr = hParts.join('，') || '無';
+            }
+          }
+
+          // 6. 運動習慣: 若為多個運動 【運動】：【頻率】, 【具體運動】
+          const formatExerciseItem = (ex: { type?: string; frequency?: string; name?: string }) => {
+            const t = (ex.type || '').trim().replace(/[:：]$/, '');
+            const f = (ex.frequency || '').trim();
+            const n = (ex.name || '').trim();
+
+            if (t && f && n) return `${t}：${f}, ${n}`;
+            if (t && f && !n) return `${t}：${f}`;
+            if (t && !f && n) return `${t}：${n}`;
+            if (!t && f && n) return `${f}, ${n}`;
+            if (n) return n;
+            if (t) return t;
+            if (f) return f;
+            return '';
+          };
+
+          const rawExList = state.clientHx.exerciseList || [];
+          const exItems = rawExList
+            .filter(ex => ex.type?.trim() || ex.frequency?.trim() || ex.name?.trim())
+            .map(ex => formatExerciseItem(ex))
+            .filter(Boolean);
+
+          if (exItems.length === 0) {
+            const single = formatExerciseItem(state.clientHx.exercise || {});
+            if (single) exItems.push(single);
+          }
+
+          const paragraphs: Paragraph[] = [
+            new Paragraph({
+              children: [new TextRun({ text: `• ${bdayLine}` })],
+              spacing: { after: 60 },
             }),
-            new TableRow({
-              children: [
-                createHeaderCell("運動習慣"), createValueCell(formatExercises(state, true)),
-                createHeaderCell(""), createValueCell(""),
-              ],
+            new Paragraph({
+              children: [new TextRun({ text: `• 工作狀況：${jobStr}` })],
+              spacing: { after: 60 },
             }),
-          ],
-        }),
+            new Paragraph({
+              children: [new TextRun({ text: `• SHx：${shxStr}` })],
+              spacing: { after: 60 },
+            }),
+          ];
+
+          // FHx
+          if (fhxItems.length > 0) {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• FHx：' })],
+                spacing: { after: 40 },
+              })
+            );
+            fhxItems.forEach((item, idx) => {
+              paragraphs.push(
+                new Paragraph({
+                  indent: { left: 400 },
+                  children: [new TextRun({ text: item })],
+                  spacing: { after: idx === fhxItems.length - 1 ? 60 : 40 },
+                })
+              );
+            });
+          } else {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• FHx：無' })],
+                spacing: { after: 60 },
+              })
+            );
+          }
+
+          // 生活習慣
+          paragraphs.push(
+            new Paragraph({
+              children: [new TextRun({ text: `• 生活習慣：${habitStr}` })],
+              spacing: { after: 60 },
+            })
+          );
+
+          // 運動習慣
+          if (exItems.length > 1) {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• 運動習慣：' })],
+                spacing: { after: 40 },
+              })
+            );
+            exItems.forEach((item, idx) => {
+              paragraphs.push(
+                new Paragraph({
+                  indent: { left: 400 },
+                  children: [new TextRun({ text: item })],
+                  spacing: { after: idx === exItems.length - 1 ? 150 : 40 },
+                })
+              );
+            });
+          } else if (exItems.length === 1) {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: `• 運動習慣：${exItems[0]}` })],
+                spacing: { after: 150 },
+              })
+            );
+          } else {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• 運動習慣：無' })],
+                spacing: { after: 150 },
+              })
+            );
+          }
+
+          return paragraphs;
+        })(),
 
         new Paragraph({ text: "2. 體位測量 (Anthropometry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
         ...(() => {
