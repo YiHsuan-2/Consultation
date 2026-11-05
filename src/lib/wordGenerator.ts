@@ -16,9 +16,46 @@ import {
 import { saveAs } from 'file-saver';
 import { AppState } from '../types';
 
+const DOCX_STYLES = {
+  default: {
+    document: {
+      run: {
+        font: { ascii: "Times New Roman", eastAsia: "標楷體", hAnsi: "Times New Roman", cs: "Times New Roman" },
+        size: 24, // 12pt
+      },
+    },
+    heading1: {
+      run: {
+        font: { ascii: "Times New Roman", eastAsia: "Times New Roman", hAnsi: "Times New Roman" },
+        size: 36, // 18pt
+        bold: true,
+      },
+    },
+    heading2: {
+      run: {
+        font: { ascii: "Times New Roman", eastAsia: "Times New Roman", hAnsi: "Times New Roman" },
+        size: 32, // 16pt (需求1: 一、二、三、四 Times New Roman, 16pt)
+        bold: true,
+      },
+    },
+    heading3: {
+      run: {
+        font: { ascii: "標楷體", eastAsia: "標楷體", hAnsi: "標楷體" },
+        size: 28, // 14pt (需求2: 子標題 標楷體, 14pt)
+        bold: true,
+      },
+    },
+  },
+};
+
 const createHeaderCell = (text: string, fill: string = "F1F5F9") => new TableCell({
   children: [new Paragraph({ 
-    children: [new TextRun({ text, bold: true })],
+    children: [new TextRun({ 
+      text, 
+      bold: true,
+      font: { ascii: "Times New Roman", eastAsia: "標楷體", hAnsi: "Times New Roman" },
+      size: 24 // 12pt
+    })],
     alignment: AlignmentType.CENTER 
   })],
   shading: { fill },
@@ -26,7 +63,13 @@ const createHeaderCell = (text: string, fill: string = "F1F5F9") => new TableCel
 });
 
 const createValueCell = (text: string) => new TableCell({
-  children: [new Paragraph({ text: text || "N/A" })],
+  children: [new Paragraph({ 
+    children: [new TextRun({ 
+      text: text || "N/A",
+      font: { ascii: "Times New Roman", eastAsia: "標楷體", hAnsi: "Times New Roman" },
+      size: 24 // 12pt
+    })]
+  })],
   verticalAlign: VerticalAlign.CENTER,
 });
 
@@ -169,7 +212,7 @@ const getMacroDistribution = (state: AppState) => {
 const PORT_VALS: Record<string, { p: number, c: number, f: number, k: number }> = {
   '低脂乳品': { p: 8, c: 12, f: 4, k: 120 },
   '全脂乳品': { p: 8, c: 12, f: 8, k: 150 },
-  '全榖雜糧': { p: 2, c: 15, f: 0, k: 70 },
+  '全榖根莖': { p: 2, c: 15, f: 0, k: 70 },
   '低脂豆魚蛋肉': { p: 7, c: 0, f: 3, k: 55 },
   '中脂豆魚蛋肉': { p: 7, c: 0, f: 5, k: 75 },
   '蔬菜': { p: 1, c: 5, f: 0, k: 25 },
@@ -181,6 +224,7 @@ const PORT_VALS: Record<string, { p: number, c: number, f: number, k: number }> 
 export const generateWordDoc = async (state: AppState) => {
   // ... (existing code remains same)
   const doc = new Document({
+    styles: DOCX_STYLES,
     sections: [{
       properties: {},
       children: [
@@ -609,7 +653,7 @@ export const generateWordDoc = async (state: AppState) => {
 
         // 新增/加強：建議熱量需求與三大營養素比例
         new Paragraph({ 
-          text: "1. 建議熱量需求與三大營養素比例 (Recommended Caloric & Macronutrients Targets)", 
+          text: "1. 建議熱量需求與三大營養素比例", 
           heading: HeadingLevel.HEADING_3, 
           spacing: { before: 200, after: 100 } 
         }),
@@ -669,7 +713,7 @@ export const generateWordDoc = async (state: AppState) => {
 
         // 新增/加強：六大類食物份數計算與建議份量
         new Paragraph({ 
-          text: "2. 六大類食物份數計算與建議份量 (Food Portions Calculator & Plan)", 
+          text: "2. 六大類食物份數計算與建議份量", 
           heading: HeadingLevel.HEADING_3, 
           spacing: { before: 200, after: 100 } 
         }),
@@ -678,7 +722,7 @@ export const generateWordDoc = async (state: AppState) => {
           const rows = [
             '低脂乳品',
             '全脂乳品',
-            '全榖雜糧',
+            '全榖根莖',
             '低脂豆魚蛋肉',
             '中脂豆魚蛋肉',
             '蔬菜',
@@ -847,6 +891,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
   });
 
   const doc = new Document({
+    styles: DOCX_STYLES,
     sections: [{
       properties: {},
       children: [
@@ -952,7 +997,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
         // 營養控制目標與目前攝取比較
         new Paragraph({ text: "三、營養控制目標 (Nutrition Control Targets)", heading: HeadingLevel.HEADING_2, spacing: { before: 400, after: 200 } }),
         new Paragraph({
-          text: "1. 建議熱量需求與三大營養素比例 (Recommended Caloric & Macronutrients Targets)",
+          text: "1. 建議熱量需求與三大營養素比例",
           heading: HeadingLevel.HEADING_3,
           spacing: { before: 100, after: 100 }
         }),
@@ -1062,7 +1107,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
 
         // 六大類食物份數計算與建議份量
         new Paragraph({ 
-          text: "2. 六大類食物份數計算與建議份量 (Food Portions Calculator & Plan)", 
+          text: "2. 六大類食物份數計算與建議份量", 
           heading: HeadingLevel.HEADING_3, 
           spacing: { before: 200, after: 100 } 
         }),
@@ -1071,7 +1116,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
           const rows = [
             '低脂乳品',
             '全脂乳品',
-            '全榖雜糧',
+            '全榖根莖',
             '低脂豆魚蛋肉',
             '中脂豆魚蛋肉',
             '蔬菜',
