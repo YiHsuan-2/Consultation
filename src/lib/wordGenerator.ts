@@ -462,7 +462,50 @@ export const generateWordDoc = async (state: AppState) => {
 
           const ibw = state.anthropometry.ibw || '--';
           const abw = state.anthropometry.abw || '--';
-          const bwChange = state.anthropometry.weightChange || '近期無變化';
+          // 結合體位變化: BW change：【體重】(日期)→【體重】(日期)，日期由最早到最近期
+          const weightDateMap = new Map<string, string>();
+          if (state.monitoring?.weightHistory) {
+            state.monitoring.weightHistory.forEach(r => {
+              if (r.date && r.weight && String(r.weight).trim() !== '' && String(r.weight).trim() !== '--') {
+                weightDateMap.set(r.date.trim().replace(/-/g, '/'), String(r.weight).trim());
+              }
+            });
+          }
+          if (state.monitoring?.history) {
+            state.monitoring.history.forEach(r => {
+              if (r.date && r.weight && String(r.weight).trim() !== '' && String(r.weight).trim() !== '--') {
+                const d = r.date.trim().replace(/-/g, '/');
+                if (!weightDateMap.has(d)) {
+                  weightDateMap.set(d, String(r.weight).trim());
+                }
+              }
+            });
+          }
+          if (state.anthropometry.weight && String(state.anthropometry.weight).trim() !== '') {
+            const curDate = (state.anthropometry.weightDate || state.consultDate || '').trim().replace(/-/g, '/');
+            if (curDate) {
+              weightDateMap.set(curDate, String(state.anthropometry.weight).trim());
+            }
+          }
+
+          const sortedWeightDates = Array.from(weightDateMap.keys()).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+          const formatW = (val: string) => {
+            const v = val.trim();
+            return v.endsWith('kg') ? v : `${v}kg`;
+          };
+
+          let bwChange = '';
+          if (sortedWeightDates.length >= 2) {
+            bwChange = sortedWeightDates
+              .map(d => `${formatW(weightDateMap.get(d)!)} (${d})`)
+              .join(' → ');
+          } else if (sortedWeightDates.length === 1) {
+            const d = sortedWeightDates[0];
+            const wStr = formatW(weightDateMap.get(d)!);
+            bwChange = `${wStr} (${d}) ${state.anthropometry.weightChange || '近期無變化'}`.trim();
+          } else {
+            bwChange = state.anthropometry.weightChange || '近期無變化';
+          }
 
           const rawWaist = (state.anthropometry.waist || '').trim();
           const waistStr = rawWaist ? (rawWaist.endsWith('cm') ? rawWaist : `${rawWaist}cm`) : '--';
@@ -503,30 +546,169 @@ export const generateWordDoc = async (state: AppState) => {
           ];
         })(),
 
-        new Paragraph({ text: "3. 生化數值 (Biochemistry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200 } }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: (() => {
-            const entries = Object.entries(state.biochemistry);
-            const rows: TableRow[] = [];
-            for (let i = 0; i < entries.length; i += 3) {
-              const chunk = entries.slice(i, i + 3);
-              rows.push(new TableRow({
-                children: chunk.flatMap(([key, val]) => [
-                  createHeaderCell(key),
-                  createValueCell(val)
-                ])
-              }));
+        new Paragraph({ text: "3. 生化數值 (Biochemistry)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
+        ...(() => {
+          const BIOCHEM_KEY_MAP: { [key: string]: string[] } = {
+            'BP': ['BP', 'bp', '血壓'],
+            'AC': ['AC', 'ac', '飯前血糖', '空腹血糖'],
+            'PC': ['PC', 'pc', '飯後血糖'],
+            'HbA1c': ['HbA1c', 'hba1c', '糖化血色素'],
+            'BUN': ['BUN', 'bun', '尿素氮'],
+            'Cr': ['Cr', 'cr', '肌酸酐'],
+            'eGFR': ['eGFR', 'egfr', '腎絲球過濾率'],
+            'UPCR': ['UPCR', 'upcr'],
+            'UricAcid': ['UricAcid', 'uricAcid', 'uric_acid', '尿酸'],
+            'TG': ['TG', 'tg', '三酸甘油酯'],
+            'TC': ['TC', 'tc', '總膽固醇'],
+            'HDL': ['HDL', 'hdl', '高密度膽固醇'],
+            'LDL': ['LDL', 'ldl', '低密度膽固醇'],
+            'AST': ['AST', 'ast', 'GOT', 'got'],
+            'ALT': ['ALT', 'alt', 'GPT', 'gpt'],
+            'Alb': ['Alb', 'alb', '白蛋白'],
+            'Na': ['Na', 'na', '鈉'],
+            'K': ['K', 'k', '鉀'],
+          };
+
+          const ORDERED_INDICATORS = [
+            'BP', 'AC', 'PC', 'HbA1c', 'BUN', 'Cr', 'eGFR', 'UPCR', 'UricAcid', 'TG', 'TC', 'HDL', 'LDL', 'AST', 'ALT', 'Alb', 'Na', 'K'
+          ];
+
+          const getValFromRecord = (rec: any, displayKey: string): string => {
+            const aliases = BIOCHEM_KEY_MAP[displayKey] || [displayKey];
+            for (const alias of aliases) {
+              if (rec[alias] !== undefined && rec[alias] !== null && String(rec[alias]).trim() !== '') {
+                return String(rec[alias]).trim();
+              }
             }
-            return rows.length > 0 ? rows : [new TableRow({ children: [createValueCell("無紀錄")] })];
-          })(),
-        }),
+            return '';
+          };
+
+          // Collect all dates -> { [indicator]: value }
+          const dateRecordMap = new Map<string, Record<string, string>>();
+
+          // 1. From biochemHistory
+          if (state.monitoring?.biochemHistory) {
+            state.monitoring.biochemHistory.forEach(rec => {
+              if (rec.date) {
+                const d = rec.date.trim().replace(/-/g, '/');
+                const cur = dateRecordMap.get(d) || {};
+                Object.keys(BIOCHEM_KEY_MAP).forEach(k => {
+                  const v = getValFromRecord(rec, k);
+                  if (v && !cur[k]) cur[k] = v;
+                });
+                Object.entries(rec).forEach(([rk, rv]) => {
+                  if (!['id', 'date', 'weight', 'other'].includes(rk) && rv !== undefined && rv !== null && String(rv).trim() !== '') {
+                    if (!cur[rk]) cur[rk] = String(rv).trim();
+                  }
+                });
+                dateRecordMap.set(d, cur);
+              }
+            });
+          }
+
+          // 2. From legacy monitoring.history
+          if (state.monitoring?.history) {
+            state.monitoring.history.forEach(rec => {
+              if (rec.date) {
+                const d = rec.date.trim().replace(/-/g, '/');
+                const cur = dateRecordMap.get(d) || {};
+                Object.keys(BIOCHEM_KEY_MAP).forEach(k => {
+                  const v = getValFromRecord(rec, k);
+                  if (v && !cur[k]) cur[k] = v;
+                });
+                dateRecordMap.set(d, cur);
+              }
+            });
+          }
+
+          // 3. From current state.biochemistry
+          const curBioDate = (state.biochemistryDate || state.consultDate || '').trim().replace(/-/g, '/');
+          if (curBioDate) {
+            const cur = dateRecordMap.get(curBioDate) || {};
+            if (state.biochemistry) {
+              Object.entries(state.biochemistry).forEach(([k, v]) => {
+                const valStr = String(v || '').trim();
+                if (valStr) {
+                  const matched = Object.keys(BIOCHEM_KEY_MAP).find(dk => 
+                    BIOCHEM_KEY_MAP[dk].some(a => a.toLowerCase() === k.toLowerCase())
+                  ) || k;
+                  cur[matched] = valStr;
+                }
+              });
+            }
+            if (Object.keys(cur).length > 0) {
+              dateRecordMap.set(curBioDate, cur);
+            }
+          }
+
+          // Sort dates chronologically (earliest to latest)
+          const sortedDates = Array.from(dateRecordMap.keys()).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+          if (sortedDates.length === 0) {
+            return [
+              new Paragraph({
+                children: [new TextRun({ text: '• 無生化數值紀錄' })],
+                spacing: { after: 120 }
+              })
+            ];
+          }
+
+          // Determine which indicators have at least one non-empty value
+          const presentIndicators = ORDERED_INDICATORS.filter(ind => {
+            return sortedDates.some(d => {
+              const v = dateRecordMap.get(d)?.[ind];
+              return v && v !== '--';
+            });
+          });
+
+          // Add custom indicators if any
+          for (const [_, rec] of dateRecordMap) {
+            for (const k of Object.keys(rec)) {
+              if (!presentIndicators.includes(k) && !ORDERED_INDICATORS.includes(k)) {
+                if (sortedDates.some(d => dateRecordMap.get(d)?.[k] && dateRecordMap.get(d)?.[k] !== '--')) {
+                  presentIndicators.push(k);
+                }
+              }
+            }
+          }
+
+          const paragraphs: Paragraph[] = [];
+
+          // Date line: 2025/08/11 → 2025/11/11 → 2026/02/23
+          paragraphs.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: sortedDates.join(' → '),
+                  bold: true,
+                  color: '2E74B5'
+                })
+              ],
+              spacing: { after: 80 }
+            })
+          );
+
+          // Indicator lines: • BP：-- → -- → 131/96
+          presentIndicators.forEach((ind, idx) => {
+            const line = sortedDates.map(d => (dateRecordMap.get(d)?.[ind] || '').trim() || '--').join(' → ');
+            paragraphs.push(
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `• ${ind}：${line}` })
+                ],
+                spacing: { after: (idx === presentIndicators.length - 1 && !state.biochemistryNotes) ? 150 : 50 }
+              })
+            );
+          });
+
+          return paragraphs;
+        })(),
         state.biochemistryNotes ? new Paragraph({
           children: [
             new TextRun({ text: "備註: ", bold: true }),
             new TextRun({ text: state.biochemistryNotes }),
           ],
-          spacing: { before: 200 }
+          spacing: { before: 80, after: 150 }
         }) : new Paragraph({ text: "" }),
 
         new Paragraph({ text: "4. 飲食史 (Diet Hx)", heading: HeadingLevel.HEADING_3, spacing: { before: 200 } }),
