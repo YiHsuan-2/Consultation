@@ -26,24 +26,24 @@ const DOCX_STYLES = {
     },
     heading1: {
       run: {
-        font: { ascii: "Times New Roman", eastAsia: "Times New Roman", hAnsi: "Times New Roman" },
-        size: 36, // 18pt
-        bold: true,
+        font: { ascii: "Times New Roman", eastAsia: "新細明體", hAnsi: "Times New Roman", cs: "Times New Roman" },
+        size: 32, // 16pt (需求3: 營養諮詢紀錄 (NCP Record) 中文: 新細明體, 英文: Times New Roman, 16pt, 標準)
+        bold: false,
       },
     },
     heading2: {
       run: {
-        font: { ascii: "Times New Roman", eastAsia: "Times New Roman", hAnsi: "Times New Roman" },
-        size: 32, // 16pt (需求1: 一、二、三、四 Times New Roman, 16pt)
-        bold: true,
+        font: { ascii: "Times New Roman", eastAsia: "新細明體", hAnsi: "Times New Roman", cs: "Times New Roman" },
+        size: 32, // 16pt (需求2: 一、二、三、四 中文: 新細明體, 英文: Times New Roman, 16pt, 標準)
+        bold: false,
         color: "2E74B5",
       },
     },
     heading3: {
       run: {
-        font: { ascii: "標楷體", eastAsia: "標楷體", hAnsi: "標楷體" },
-        size: 28, // 14pt (需求2: 子標題 標楷體, 14pt)
-        bold: true,
+        font: { ascii: "標楷體", eastAsia: "標楷體", hAnsi: "標楷體", cs: "標楷體" },
+        size: 28, // 14pt (需求1: 子標題 標楷體, 14pt, 標準)
+        bold: false,
         color: "2E74B5",
       },
     },
@@ -231,7 +231,14 @@ export const generateWordDoc = async (state: AppState) => {
       properties: {},
       children: [
         new Paragraph({
-          text: "營養諮詢紀錄 (NCP Record)",
+          children: [
+            new TextRun({
+              text: "營養諮詢紀錄 (NCP Record)",
+              font: { ascii: "Times New Roman", eastAsia: "新細明體", hAnsi: "Times New Roman", cs: "Times New Roman" },
+              size: 32, // 16pt
+              bold: false,
+            })
+          ],
           heading: HeadingLevel.HEADING_1,
           alignment: AlignmentType.CENTER,
           spacing: { after: 400 },
@@ -926,40 +933,108 @@ export const generateWordDoc = async (state: AppState) => {
         })(),
 
         new Paragraph({ text: "5. 臨床狀況 (Clinical)", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: [
-                createHeaderCell("既往病史 (Medical Hx)"),
-                createValueCell((() => {
-                  const hx = state.clinical.medicalHx
-                    .map(h => (h === '腎臟病' && state.clinical.kidneyStage ? `腎臟病 (${state.clinical.kidneyStage})` : h));
-                  if (state.clinical.medicalHxOther) {
-                    hx.push(state.clinical.medicalHxOther);
-                  }
-                  return hx.length > 0 ? hx.join("、") : "無特定紀錄";
-                })()),
-                createHeaderCell("腸胃狀況 (GI Status)"),
-                createValueCell((() => {
-                  const gi = [...state.clinical.giStatus];
-                  if (state.clinical.giStatusOther) {
-                    gi.push(state.clinical.giStatusOther);
-                  }
-                  return gi.length > 0 ? gi.join("、") : "正常 / 無特殊不適";
-                })()),
-              ]
-            }),
-            new TableRow({
-              children: [
-                createHeaderCell("排便狀況 (Stool Status)"),
-                createValueCell(state.clinical.stoolStatus || "正常 / 未填寫"),
-                createHeaderCell("目前服用藥物 (Medications)"),
-                createValueCell(state.clinical.medications || "無使用特殊藥物 / 未填寫"),
-              ]
-            }),
-          ]
-        }),
+        ...(() => {
+          const paragraphs: Paragraph[] = [];
+
+          // 1. MHx
+          const hxList = (state.clinical.medicalHx || [])
+            .map(h => (h === '腎臟病' && state.clinical.kidneyStage ? `腎臟病 (${state.clinical.kidneyStage})` : h))
+            .filter(Boolean);
+          const otherText = (state.clinical.medicalHxOther || '').trim();
+
+          if (hxList.length === 0 && !otherText) {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• MHx：無特定紀錄' })],
+                spacing: { after: 60 },
+              })
+            );
+          } else {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• MHx：' })],
+                spacing: { after: 40 },
+              })
+            );
+            if (hxList.length > 0) {
+              paragraphs.push(
+                new Paragraph({
+                  indent: { left: 400 },
+                  children: [new TextRun({ text: hxList.join('、') })],
+                  spacing: { after: otherText ? 40 : 60 },
+                })
+              );
+            }
+            if (otherText) {
+              const otherLines = otherText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+              otherLines.forEach((line, idx) => {
+                paragraphs.push(
+                  new Paragraph({
+                    indent: { left: 400 },
+                    children: [new TextRun({ text: line })],
+                    spacing: { after: idx === otherLines.length - 1 ? 60 : 40 },
+                  })
+                );
+              });
+            }
+          }
+
+          // 2. GI status
+          const formatGiStatus = (clinical: AppState['clinical']) => {
+            const list = (clinical.giStatus || []).filter(x => x !== '無');
+            if (clinical.giStatusOther?.trim()) {
+              list.push(clinical.giStatusOther.trim());
+            }
+            if (list.length === 0) {
+              if (clinical.stoolStatus && clinical.stoolStatus !== '正常' && clinical.stoolStatus.toLowerCase() !== 'normal') {
+                return `normal (${clinical.stoolStatus})`;
+              }
+              return 'normal';
+            }
+            let res = list.join('、');
+            if (clinical.stoolStatus && clinical.stoolStatus !== '正常' && clinical.stoolStatus.toLowerCase() !== 'normal') {
+              res += ` (排便: ${clinical.stoolStatus})`;
+            }
+            return res;
+          };
+
+          paragraphs.push(
+            new Paragraph({
+              children: [new TextRun({ text: `• GI status：${formatGiStatus(state.clinical)}` })],
+              spacing: { after: 60 },
+            })
+          );
+
+          // 3. Medications
+          const medsRaw = (state.clinical.medications || '').trim();
+          if (!medsRaw || medsRaw === '無' || medsRaw === '無使用特殊藥物 / 未填寫') {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• Medications：無' })],
+                spacing: { after: 150 },
+              })
+            );
+          } else {
+            paragraphs.push(
+              new Paragraph({
+                children: [new TextRun({ text: '• Medications：' })],
+                spacing: { after: 40 },
+              })
+            );
+            const medLines = medsRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            medLines.forEach((mLine, idx) => {
+              paragraphs.push(
+                new Paragraph({
+                  indent: { left: 400 },
+                  children: [new TextRun({ text: mLine })],
+                  spacing: { after: idx === medLines.length - 1 ? 150 : 40 },
+                })
+              );
+            });
+          }
+
+          return paragraphs;
+        })(),
 
         // 2. Diagnosis
         new Paragraph({
