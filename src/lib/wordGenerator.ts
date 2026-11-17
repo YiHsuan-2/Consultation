@@ -29,6 +29,7 @@ const DOCX_STYLES = {
         font: { ascii: "Times New Roman", eastAsia: "新細明體", hAnsi: "Times New Roman", cs: "Times New Roman" },
         size: 32, // 16pt (需求3: 營養諮詢紀錄 (NCP Record) 中文: 新細明體, 英文: Times New Roman, 16pt, 標準)
         bold: false,
+        color: "2E74B5",
       },
     },
     heading2: {
@@ -214,13 +215,22 @@ const getMacroDistribution = (state: AppState) => {
 const PORT_VALS: Record<string, { p: number, c: number, f: number, k: number }> = {
   '低脂乳品': { p: 8, c: 12, f: 4, k: 120 },
   '全脂乳品': { p: 8, c: 12, f: 8, k: 150 },
-  '全榖根莖': { p: 2, c: 15, f: 0, k: 70 },
+  '全榖雜糧': { p: 2, c: 15, f: 0, k: 70 },
   '低脂豆魚蛋肉': { p: 7, c: 0, f: 3, k: 55 },
   '中脂豆魚蛋肉': { p: 7, c: 0, f: 5, k: 75 },
   '蔬菜': { p: 1, c: 5, f: 0, k: 25 },
   '水果': { p: 0, c: 15, f: 0, k: 60 },
   '堅果': { p: 0, c: 0, f: 5, k: 45 },
   '低氮澱粉': { p: 1, c: 15, f: 0, k: 64 }
+};
+
+const getPortionAmount = (portions: Record<string, number> | undefined, key: string): number => {
+  if (!portions) return 0;
+  if (portions[key] !== undefined) return portions[key] || 0;
+  if (key === '全榖雜糧') {
+    return portions['全榖根莖'] ?? portions['全穀雜糧'] ?? portions['全穀根莖'] ?? 0;
+  }
+  return 0;
 };
 
 export const generateWordDoc = async (state: AppState) => {
@@ -237,6 +247,7 @@ export const generateWordDoc = async (state: AppState) => {
               font: { ascii: "Times New Roman", eastAsia: "新細明體", hAnsi: "Times New Roman", cs: "Times New Roman" },
               size: 32, // 16pt
               bold: false,
+              color: "2E74B5",
             })
           ],
           heading: HeadingLevel.HEADING_1,
@@ -580,35 +591,55 @@ export const generateWordDoc = async (state: AppState) => {
             'BP', 'AC', 'PC', 'HbA1c', 'BUN', 'Cr', 'eGFR', 'UPCR', 'UricAcid', 'TG', 'TC', 'HDL', 'LDL', 'AST', 'ALT', 'Alb', 'Na', 'K'
           ];
 
-          const getValFromRecord = (rec: any, displayKey: string): string => {
-            const aliases = BIOCHEM_KEY_MAP[displayKey] || [displayKey];
-            for (const alias of aliases) {
-              if (rec[alias] !== undefined && rec[alias] !== null && String(rec[alias]).trim() !== '') {
-                return String(rec[alias]).trim();
+          const findStandardKey = (rawKey: string): string | null => {
+            const lower = rawKey.trim().toLowerCase();
+            for (const [stdKey, aliases] of Object.entries(BIOCHEM_KEY_MAP)) {
+              if (stdKey.toLowerCase() === lower || aliases.some(a => a.toLowerCase() === lower)) {
+                return stdKey;
               }
             }
-            return '';
+            return null;
           };
+
+          const IGNORED_FIELDS = ['id', 'date', 'weight', 'other', 'notes', 'createdAt', 'updatedAt'];
 
           // Collect all dates -> { [indicator]: value }
           const dateRecordMap = new Map<string, Record<string, string>>();
+
+          const mergeRecordIntoDateMap = (dateStr: string, rec: Record<string, any>) => {
+            if (!dateStr || !rec) return;
+            const d = dateStr.trim().replace(/-/g, '/');
+            const cur = dateRecordMap.get(d) || {};
+
+            Object.entries(rec).forEach(([rk, rv]) => {
+              if (IGNORED_FIELDS.includes(rk) || rv === undefined || rv === null) return;
+              const valStr = String(rv).trim();
+              if (!valStr) return;
+
+              const stdKey = findStandardKey(rk);
+              if (stdKey) {
+                // If standard key, store under canonical standard key only
+                if (!cur[stdKey] || cur[stdKey] === '--') {
+                  cur[stdKey] = valStr;
+                }
+              } else {
+                // Truly custom indicator
+                if (!cur[rk] || cur[rk] === '--') {
+                  cur[rk] = valStr;
+                }
+              }
+            });
+
+            if (Object.keys(cur).length > 0) {
+              dateRecordMap.set(d, cur);
+            }
+          };
 
           // 1. From biochemHistory
           if (state.monitoring?.biochemHistory) {
             state.monitoring.biochemHistory.forEach(rec => {
               if (rec.date) {
-                const d = rec.date.trim().replace(/-/g, '/');
-                const cur = dateRecordMap.get(d) || {};
-                Object.keys(BIOCHEM_KEY_MAP).forEach(k => {
-                  const v = getValFromRecord(rec, k);
-                  if (v && !cur[k]) cur[k] = v;
-                });
-                Object.entries(rec).forEach(([rk, rv]) => {
-                  if (!['id', 'date', 'weight', 'other'].includes(rk) && rv !== undefined && rv !== null && String(rv).trim() !== '') {
-                    if (!cur[rk]) cur[rk] = String(rv).trim();
-                  }
-                });
-                dateRecordMap.set(d, cur);
+                mergeRecordIntoDateMap(rec.date, rec);
               }
             });
           }
@@ -617,35 +648,15 @@ export const generateWordDoc = async (state: AppState) => {
           if (state.monitoring?.history) {
             state.monitoring.history.forEach(rec => {
               if (rec.date) {
-                const d = rec.date.trim().replace(/-/g, '/');
-                const cur = dateRecordMap.get(d) || {};
-                Object.keys(BIOCHEM_KEY_MAP).forEach(k => {
-                  const v = getValFromRecord(rec, k);
-                  if (v && !cur[k]) cur[k] = v;
-                });
-                dateRecordMap.set(d, cur);
+                mergeRecordIntoDateMap(rec.date, rec);
               }
             });
           }
 
           // 3. From current state.biochemistry
           const curBioDate = (state.biochemistryDate || state.consultDate || '').trim().replace(/-/g, '/');
-          if (curBioDate) {
-            const cur = dateRecordMap.get(curBioDate) || {};
-            if (state.biochemistry) {
-              Object.entries(state.biochemistry).forEach(([k, v]) => {
-                const valStr = String(v || '').trim();
-                if (valStr) {
-                  const matched = Object.keys(BIOCHEM_KEY_MAP).find(dk => 
-                    BIOCHEM_KEY_MAP[dk].some(a => a.toLowerCase() === k.toLowerCase())
-                  ) || k;
-                  cur[matched] = valStr;
-                }
-              });
-            }
-            if (Object.keys(cur).length > 0) {
-              dateRecordMap.set(curBioDate, cur);
-            }
+          if (curBioDate && state.biochemistry) {
+            mergeRecordIntoDateMap(curBioDate, state.biochemistry);
           }
 
           // Sort dates chronologically (earliest to latest)
@@ -668,10 +679,10 @@ export const generateWordDoc = async (state: AppState) => {
             });
           });
 
-          // Add custom indicators if any
+          // Add custom indicators if any (never re-add anything matching standard indicators)
           for (const [_, rec] of dateRecordMap) {
             for (const k of Object.keys(rec)) {
-              if (!presentIndicators.includes(k) && !ORDERED_INDICATORS.includes(k)) {
+              if (!findStandardKey(k) && !presentIndicators.includes(k)) {
                 if (sortedDates.some(d => dateRecordMap.get(d)?.[k] && dateRecordMap.get(d)?.[k] !== '--')) {
                   presentIndicators.push(k);
                 }
@@ -1131,7 +1142,7 @@ export const generateWordDoc = async (state: AppState) => {
           const rows = [
             '低脂乳品',
             '全脂乳品',
-            '全榖根莖',
+            '全榖雜糧',
             '低脂豆魚蛋肉',
             '中脂豆魚蛋肉',
             '蔬菜',
@@ -1139,7 +1150,7 @@ export const generateWordDoc = async (state: AppState) => {
             '堅果',
             '低氮澱粉'
           ].map(key => {
-            const val = state.intervention.portions?.[key] || 0;
+            const val = getPortionAmount(state.intervention.portions, key);
             const rowInfo = PORT_VALS[key];
             const p = val * rowInfo.p;
             const c = val * rowInfo.c;
@@ -1531,7 +1542,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
           const rows = [
             '低脂乳品',
             '全脂乳品',
-            '全榖根莖',
+            '全榖雜糧',
             '低脂豆魚蛋肉',
             '中脂豆魚蛋肉',
             '蔬菜',
@@ -1539,7 +1550,7 @@ export const generateReminderWordDoc = async (state: AppState) => {
             '堅果',
             '低氮澱粉'
           ].map(key => {
-            const val = state.intervention.portions?.[key] || 0;
+            const val = getPortionAmount(state.intervention.portions, key);
             const rowInfo = PORT_VALS[key];
             const p = val * rowInfo.p;
             const c = val * rowInfo.c;
