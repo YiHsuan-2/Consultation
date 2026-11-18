@@ -5824,17 +5824,17 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                   </div>
 
                   {/* 便當油脂估計備註 */}
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 shadow-sm">
+                  <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-4 py-3 shadow-xs">
                     <button
                       type="button"
                       onClick={() => setBentoRefExpanded(!bentoRefExpanded)}
-                      className="w-full flex items-center justify-between text-amber-800 font-bold border-b border-amber-200 pb-2 mb-2 hover:text-amber-900 cursor-pointer text-left focus:outline-none"
+                      className={`w-full flex items-center justify-between text-amber-900 font-bold hover:text-amber-950 cursor-pointer text-left focus:outline-none ${bentoRefExpanded ? 'border-b border-amber-200/80 pb-2.5 mb-3' : ''}`}
                     >
                       <div className="flex items-center gap-2">
                         <Info className="w-4 h-4 text-amber-700" />
-                        <span className="text-sm text-amber-850">便當油脂與食材估計參考</span>
+                        <span className="text-sm">便當油脂與食材估計參考</span>
                       </div>
-                      <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200">
+                      <span className="text-xs font-semibold text-amber-700">
                         {bentoRefExpanded ? '收合 ▲' : '展開 ▼'}
                       </span>
                     </button>
@@ -5843,53 +5843,44 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       <motion.div 
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
-                        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1"
+                        className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs"
                       >
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
-                          <span className="text-[11px] font-bold text-amber-600 uppercase">一般蔬菜</span>
-                          <span className="text-xs text-amber-900 font-medium tracking-tight">每樣蔬菜：0.5-1 ex</span>
+                        <div className="bg-white/80 rounded-lg border border-amber-200/60 px-3.5 py-2 divide-y divide-amber-100">
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">一般蔬菜</span>
+                            <span className="text-slate-700 text-right">每樣蔬菜：0.5–1 ex</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">吸油食材</span>
+                            <span className="text-slate-700 text-right">茄子、苦瓜、豆皮、干絲：1–1.5 以上</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">炸物 / 勾芡</span>
+                            <span className="text-red-700 font-semibold text-right">排骨、糖醋、三杯：1.5–2 以上</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">雞胸肉估計</span>
+                            <span className="text-slate-700 text-right">全聯一片 100–150g：約 3.5–5 ex 肉類</span>
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
-                          <span className="text-[11px] font-bold text-amber-600 uppercase">吸油食材</span>
-                          <span className="text-xs text-amber-900 font-medium tracking-tight">茄子、苦瓜、豆皮、干絲：1-1.5 以上</span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
-                          <span className="text-[11px] font-bold text-amber-600 uppercase">炸物/勾芡</span>
-                          <span className="text-xs text-amber-900 font-bold tracking-tight text-red-700">排骨、糖醋、三杯：1.5-2 以上</span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100">
-                          <span className="text-[11px] font-bold text-amber-600 uppercase">雞胸肉估計</span>
-                          <span className="text-xs text-amber-900 font-medium tracking-tight">全聯一片 100-150g：約 3.5-5 ex 肉類</span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
-                          <span className="text-[11px] font-bold text-amber-700 uppercase">八方招牌水餃 (10顆)</span>
-                          <span className="text-[11.5px] text-amber-950 font-medium tracking-tight leading-relaxed">
-                            160g白飯 + 33ml油 + 1片雞胸肉 + 2.5g鹽巴
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
-                          <span className="text-[11px] font-bold text-amber-700 uppercase">八方招牌鍋貼 (10顆)</span>
-                          <span className="text-[11.5px] text-amber-950 font-medium tracking-tight leading-relaxed">
-                            160g白飯 + 50ml油 + 1/3片雞胸肉 + 2g鹽巴
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
-                          <span className="text-[11px] font-bold text-amber-700 uppercase">梁社漢排骨</span>
-                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
-                            130g
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
-                          <span className="text-[11px] font-bold text-amber-700 uppercase">梁社漢炸雞排</span>
-                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
-                            230g
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
-                          <span className="text-[11px] font-bold text-amber-700 uppercase">火鍋店 白色/透明塑膠飲料杯</span>
-                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
-                            170ml/個
-                          </span>
+
+                        <div className="bg-white/80 rounded-lg border border-amber-200/60 px-3.5 py-2 divide-y divide-amber-100">
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">八方招牌水餃 (10顆)</span>
+                            <span className="text-slate-700 text-right">160g白飯 + 33ml油 + 1片雞胸肉 + 2.5g鹽巴</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">八方招牌鍋貼 (10顆)</span>
+                            <span className="text-slate-700 text-right">160g白飯 + 50ml油 + 1/3片雞胸肉 + 2g鹽巴</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">梁社漢排骨 / 炸雞排</span>
+                            <span className="text-slate-800 font-medium text-right">排骨 130g ／ 炸雞排 230g</span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-3 py-1.5">
+                            <span className="font-bold text-amber-800 shrink-0">火鍋店 白色/透明塑膠飲料杯</span>
+                            <span className="text-slate-800 font-medium text-right">170ml/個</span>
+                          </div>
                         </div>
                       </motion.div>
                     )}
