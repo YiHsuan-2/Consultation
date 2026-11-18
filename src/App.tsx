@@ -5885,6 +5885,12 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                             230g
                           </span>
                         </div>
+                        <div className="flex flex-col gap-1 p-2 bg-white/55 rounded-lg border border-amber-100 shadow-3xs">
+                          <span className="text-[11px] font-bold text-amber-700 uppercase">火鍋店 白色/透明塑膠飲料杯</span>
+                          <span className="text-xs text-amber-900 font-semibold tracking-tight">
+                            170ml/個
+                          </span>
+                        </div>
                       </motion.div>
                     )}
                   </div>
