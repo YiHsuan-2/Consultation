@@ -1989,9 +1989,9 @@ export default function App() {
 
     let bee = 0;
     if (gender === '男') {
-      bee = 66 + 13.7 * weight + 5 * height - 6.8 * age;
+      bee = 66.5 + 13.75 * weight + 5.003 * height - 6.755 * age;
     } else {
-      bee = 655 + 9.6 * weight + 1.8 * height - 4.7 * age;
+      bee = 655.1 + 9.563 * weight + 1.85 * height - 4.676 * age;
     }
 
     const valueActivity = state.guidelineSelections.hbActivity !== undefined ? parseFloat(state.guidelineSelections.hbActivity) : 1.3;
