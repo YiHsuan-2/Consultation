@@ -21,10 +21,9 @@ export function NutritionAssessment({ assessment, onChange }: Props) {
   const { clientHx, anthropometry, biochemistry, clinical, diet, foodEntries, waterIntake } = assessment;
 
   // Calculations
-  const calculateStandardWeight = (height: number, gender: string) => {
+  const calculateStandardWeight = (height: number, _gender: string) => {
     if (!height) return 0;
-    const hInM = height / 100;
-    return gender === 'male' ? 22 * hInM * hInM : 22 * hInM * hInM; // Simplified for now
+    return (22 * height * height) / 10000;
   };
 
   const calculateAdjustedWeight = (weight: number, standardWeight: number) => {
