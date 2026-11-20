@@ -1918,36 +1918,29 @@ export default function App() {
   useEffect(() => {
     const h = parseFloat(state.anthropometry.height);
     const w = parseFloat(state.anthropometry.weight);
-    const birthday = state.clientHx.birthday;
 
-    if (h > 0 && w > 0) {
-      const h_m = h / 100;
-      const bmi = (w / (h_m * h_m)).toFixed(1);
-      
-      // Age calculation
-      let age = 0;
-      if (birthday) {
-        const birthDate = new Date(birthday);
-        const today = new Date();
-        age = today.getFullYear() - birthDate.getFullYear();
-        const m = today.getMonth() - birthDate.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-          age--;
+    if (h > 0) {
+      const ibw = ((22 * h * h) / 10000).toFixed(1);
+
+      if (w > 0) {
+        const h_m = h / 100;
+        const bmi = (w / (h_m * h_m)).toFixed(1);
+        const abw = ((w - parseFloat(ibw)) / 4 + parseFloat(ibw)).toFixed(1);
+
+        if (bmi !== state.anthropometry.bmi || ibw !== state.anthropometry.ibw || abw !== state.anthropometry.abw) {
+          setState(prev => ({
+            ...prev,
+            anthropometry: { ...prev.anthropometry, bmi, ibw, abw }
+          }));
         }
-      }
-
-      const ibw_factor = age >= 50 ? 25 : 22;
-      const ibw = (ibw_factor * h_m * h_m).toFixed(1);
-      const abw = ((w - parseFloat(ibw)) / 4 + parseFloat(ibw)).toFixed(1);
-
-      if (bmi !== state.anthropometry.bmi || ibw !== state.anthropometry.ibw || abw !== state.anthropometry.abw) {
+      } else if (ibw !== state.anthropometry.ibw) {
         setState(prev => ({
           ...prev,
-          anthropometry: { ...prev.anthropometry, bmi, ibw, abw }
+          anthropometry: { ...prev.anthropometry, ibw }
         }));
       }
     }
-  }, [state.anthropometry.height, state.anthropometry.weight, state.clientHx.birthday, state.anthropometry.bmi, state.anthropometry.ibw, state.anthropometry.abw]);
+  }, [state.anthropometry.height, state.anthropometry.weight, state.anthropometry.bmi, state.anthropometry.ibw, state.anthropometry.abw]);
 
   // Daily Calorie Requirement Calculation
   const recommendedKcal = useMemo(() => {
@@ -4190,7 +4183,7 @@ ${s.reminderNotes || '減重以穩定、可持續為原則，不建議極端節�
                       <label className="text-sm font-medium text-slate-700 font-bold">
                         IBW (標準體重) 
                         <span className="text-[10px] ml-1 text-slate-400">
-                          ({(calculateAge(state.clientHx.birthday) >= 50 ? 25 : 22)})
+                          (22)
                         </span>
                       </label>
                       <div className="px-3 py-2 rounded-lg font-bold border bg-slate-50 border-slate-200 text-slate-700">
